@@ -319,3 +319,15 @@ target_include_directories(io_response PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
 io_add_test(test_io_request tests/unit/test_io_request.c io_request)
 io_add_test(test_io_response tests/unit/test_io_response.c io_response)
+
+# ============================================================================
+# Sprint 3: HTTP/1.1 parser (picohttpparser)
+# ============================================================================
+
+add_library(io_http1 STATIC src/http/io_http1.c src/http/picohttpparser.c)
+target_include_directories(io_http1 PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_http1 PUBLIC io_request)
+# picohttpparser uses pointer arithmetic that triggers sign-conversion warnings
+target_compile_options(io_http1 PRIVATE -Wno-sign-conversion -Wno-conversion -Wno-undef)
+
+io_add_test(test_io_http1 tests/unit/test_io_http1.c io_http1 io_request io_response)
