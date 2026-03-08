@@ -532,3 +532,33 @@ if(WSLAY_INCLUDE_DIR AND WSLAY_LIBRARY)
 endif()
 
 io_add_test(test_io_websocket tests/unit/test_io_websocket.c io_websocket)
+
+# ============================================================================
+# Sprint 7: HTTP/2 (nghttp2)
+# ============================================================================
+
+find_path(NGHTTP2_INCLUDE_DIR NAMES nghttp2/nghttp2.h)
+find_library(NGHTTP2_LIBRARY NAMES nghttp2)
+
+add_library(io_http2 STATIC src/http/io_http2.c)
+target_include_directories(io_http2 PUBLIC ${CMAKE_SOURCE_DIR}/src)
+if(NGHTTP2_INCLUDE_DIR AND NGHTTP2_LIBRARY)
+    target_include_directories(io_http2 PUBLIC ${NGHTTP2_INCLUDE_DIR})
+    target_link_libraries(io_http2 PUBLIC ${NGHTTP2_LIBRARY})
+endif()
+target_link_libraries(io_http2 PUBLIC io_request io_response)
+
+if(BUILD_TESTING AND TARGET unity AND NGHTTP2_INCLUDE_DIR AND NGHTTP2_LIBRARY)
+    add_executable(test_io_http2 tests/unit/test_io_http2.c)
+    target_include_directories(test_io_http2 PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${NGHTTP2_INCLUDE_DIR}
+    )
+    target_link_libraries(test_io_http2 PRIVATE
+        unity io_http2 io_request io_response ${NGHTTP2_LIBRARY}
+    )
+    target_compile_options(test_io_http2 PRIVATE
+        -Wno-missing-prototypes -Wno-missing-declarations
+    )
+    add_test(NAME test_io_http2 COMMAND test_io_http2)
+endif()
