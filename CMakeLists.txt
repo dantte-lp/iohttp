@@ -441,3 +441,23 @@ io_add_test(test_io_cors tests/unit/test_io_cors.c io_cors io_request io_respons
 io_add_test(test_io_ratelimit tests/unit/test_io_ratelimit.c io_ratelimit io_request io_response)
 io_add_test(test_io_security tests/unit/test_io_security.c io_security io_request io_response)
 io_add_test(test_io_auth tests/unit/test_io_auth.c io_auth io_request io_response)
+
+# ============================================================================
+# Sprint 5: Static file server
+# ============================================================================
+
+add_library(io_static STATIC src/static/io_static.c)
+target_include_directories(io_static PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_static PUBLIC io_request io_response)
+
+io_add_test(test_io_static tests/unit/test_io_static.c io_static io_request io_response)
+
+# ============================================================================
+# Sprint 5: Multipart parser
+# ============================================================================
+
+add_library(io_multipart STATIC src/http/io_multipart.c)
+target_include_directories(io_multipart PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_multipart PUBLIC io_request)
+
+io_add_test(test_io_multipart tests/unit/test_io_multipart.c io_multipart io_request)
