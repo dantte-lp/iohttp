@@ -283,7 +283,7 @@ io_add_test(test_io_conn tests/unit/test_io_conn.c io_conn)
 
 add_library(io_server STATIC src/core/io_server.c)
 target_include_directories(io_server PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(io_server PUBLIC io_loop io_conn)
+target_link_libraries(io_server PUBLIC io_loop io_conn io_ctx io_http1 io_request io_response io_router io_middleware)
 
 io_add_test(test_io_server tests/unit/test_io_server.c io_server io_loop io_conn)
 
@@ -760,4 +760,23 @@ if(BUILD_TESTING AND TARGET unity AND TARGET io_http3 AND TARGET io_quic)
         TEST_CERTS_DIR="${CMAKE_SOURCE_DIR}/tests/certs"
     )
     add_test(NAME test_http3_server COMMAND test_http3_server)
+endif()
+
+# ============================================================================
+# Sprint 11: TCP pipeline end-to-end integration test
+# ============================================================================
+
+if(BUILD_TESTING AND TARGET unity)
+    add_executable(test_pipeline tests/integration/test_pipeline.c)
+    target_include_directories(test_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_pipeline PRIVATE
+        unity io_server io_loop io_conn io_ctx
+        io_http1 io_request io_response
+        io_router io_radix io_middleware
+        io_route_group io_route_inspect io_route_meta
+    )
+    target_compile_options(test_pipeline PRIVATE
+        -Wno-missing-prototypes -Wno-missing-declarations
+    )
+    add_test(NAME test_pipeline COMMAND test_pipeline)
 endif()

@@ -5,6 +5,13 @@
 
 #include "core/io_server.h"
 
+#include "core/io_ctx.h"
+#include "http/io_http1.h"
+#include "http/io_request.h"
+#include "http/io_response.h"
+#include "middleware/io_middleware.h"
+#include "router/io_router.h"
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -187,6 +194,135 @@ static int arm_recv(io_server_t *srv, io_conn_t *conn)
     return 0;
 }
 
+/* ---- Pipeline helpers ---- */
+
+static io_conn_t *find_conn_by_id(io_server_t *srv, uint32_t conn_id)
+{
+    io_conn_pool_t *pool = srv->pool;
+    uint32_t cap = io_conn_pool_capacity(pool);
+    for (uint32_t i = 0; i < cap; i++) {
+        io_conn_t *c = io_conn_pool_get(pool, i);
+        if (c != nullptr && c->state != IO_CONN_FREE && c->id == conn_id) {
+            return c;
+        }
+    }
+    return nullptr;
+}
+
+static int arm_send(io_server_t *srv, io_conn_t *conn,
+                    const uint8_t *data, size_t len)
+{
+    if (conn->send_active) {
+        return -EBUSY;
+    }
+
+    free(conn->send_buf);
+    conn->send_buf = malloc(len);
+    if (conn->send_buf == nullptr) {
+        return -ENOMEM;
+    }
+    memcpy(conn->send_buf, data, len);
+    conn->send_len = len;
+    conn->send_offset = 0;
+    conn->send_active = true;
+
+    struct io_uring *ring = io_loop_ring(srv->loop);
+    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+    if (sqe == nullptr) {
+        conn->send_active = false;
+        return -ENOSPC;
+    }
+
+    io_uring_prep_send(sqe, conn->fd, conn->send_buf, len, MSG_NOSIGNAL);
+    io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(conn->id, IO_OP_SEND));
+
+    return 0;
+}
+
+static int arm_close(io_server_t *srv, io_conn_t *conn)
+{
+    struct io_uring *ring = io_loop_ring(srv->loop);
+    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+    if (sqe == nullptr) {
+        close(conn->fd);
+        conn->fd = -1;
+        io_conn_free(srv->pool, conn);
+        return 0;
+    }
+
+    io_uring_prep_close(sqe, conn->fd);
+    io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(conn->id, IO_OP_CLOSE));
+    conn->fd = -1;
+    (void)io_conn_transition(conn, IO_CONN_CLOSING);
+
+    return 0;
+}
+
+static int dispatch_request(io_server_t *srv, io_conn_t *conn, io_request_t *req)
+{
+    io_response_t resp;
+    (void)io_response_init(&resp);
+
+    io_ctx_t ctx;
+    int rc = io_ctx_init(&ctx, req, &resp, srv);
+    if (rc < 0) {
+        io_response_destroy(&resp);
+        return rc;
+    }
+
+    if (srv->router != nullptr) {
+        io_route_match_t m = io_router_dispatch(srv->router, req->method,
+                                                req->path, req->path_len);
+        if (m.status == IO_MATCH_FOUND && m.handler != nullptr) {
+            req->param_count = m.param_count;
+            for (uint32_t i = 0; i < m.param_count && i < IO_MAX_PATH_PARAMS;
+                 i++) {
+                req->params[i] = m.params[i];
+            }
+
+            uint32_t global_count = 0;
+            io_middleware_fn *global_mw =
+                io_router_global_middleware(srv->router, &global_count);
+            rc = io_chain_execute(&ctx, global_mw, global_count,
+                                  nullptr, 0, m.handler);
+        } else if (m.status == IO_MATCH_METHOD_NOT_ALLOWED) {
+            io_handler_fn h405 =
+                io_router_method_not_allowed_handler(srv->router);
+            if (h405 != nullptr) {
+                rc = h405(&ctx);
+            } else {
+                rc = io_ctx_error(&ctx, 405, "Method Not Allowed");
+            }
+        } else {
+            io_handler_fn h404 = io_router_not_found_handler(srv->router);
+            if (h404 != nullptr) {
+                rc = h404(&ctx);
+            } else {
+                rc = io_ctx_error(&ctx, 404, "Not Found");
+            }
+        }
+    } else if (srv->on_request != nullptr) {
+        rc = srv->on_request(&ctx, srv->on_request_data);
+    } else {
+        rc = io_ctx_error(&ctx, 503, "No handler configured");
+    }
+
+    /* Serialize HTTP/1.1 response and arm send */
+    uint8_t resp_buf[65536];
+    int resp_len = io_http1_serialize_response(&resp, resp_buf,
+                                               sizeof(resp_buf));
+    if (resp_len > 0) {
+        (void)arm_send(srv, conn, resp_buf, (size_t)resp_len);
+    }
+
+    conn->keep_alive = req->keep_alive && (resp.status < 400);
+
+    io_ctx_destroy(&ctx);
+    io_response_destroy(&resp);
+
+    return rc;
+}
+
 /* ---- Run ---- */
 
 int io_server_listen(io_server_t *srv)
@@ -333,6 +469,120 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                 if (srv->listening && !srv->stopped) {
                     (void)arm_multishot_accept(srv);
                 }
+            }
+        } else if (op == IO_OP_RECV) {
+            uint32_t conn_id = (uint32_t)IO_DECODE_ID(ud);
+            io_conn_t *conn = find_conn_by_id(srv, conn_id);
+
+            if (conn == nullptr) {
+                processed++;
+                continue;
+            }
+
+            if (cqe->res <= 0) {
+                (void)arm_close(srv, conn);
+                processed++;
+                continue;
+            }
+
+            conn->recv_len += (size_t)cqe->res;
+
+            io_request_t req;
+            int consumed = io_http1_parse_request(conn->recv_buf,
+                                                  conn->recv_len, &req);
+
+            if (consumed > 0) {
+                size_t hdr_len = (size_t)consumed;
+                size_t body_avail = conn->recv_len - hdr_len;
+
+                /* Wait for full body if Content-Length specified */
+                if (req.content_length > 0 &&
+                    body_avail < req.content_length) {
+                    (void)arm_recv(srv, conn);
+                    processed++;
+                    continue;
+                }
+
+                /* Set body pointer into recv buffer */
+                if (req.content_length > 0) {
+                    req.body = conn->recv_buf + hdr_len;
+                    req.body_len = req.content_length;
+                }
+
+                size_t total_consumed = hdr_len + req.content_length;
+                (void)dispatch_request(srv, conn, &req);
+
+                size_t remaining = conn->recv_len - total_consumed;
+                if (remaining > 0) {
+                    memmove(conn->recv_buf,
+                            conn->recv_buf + total_consumed, remaining);
+                }
+                conn->recv_len = remaining;
+            } else if (consumed == -EAGAIN) {
+                (void)arm_recv(srv, conn);
+            } else {
+                io_response_t bad_resp;
+                (void)io_response_init(&bad_resp);
+                bad_resp.status = 400;
+                (void)io_response_set_body(&bad_resp,
+                                           (const uint8_t *)"Bad Request",
+                                           11);
+                uint8_t resp_buf[512];
+                int resp_len = io_http1_serialize_response(
+                    &bad_resp, resp_buf, sizeof(resp_buf));
+                if (resp_len > 0) {
+                    (void)arm_send(srv, conn, resp_buf, (size_t)resp_len);
+                }
+                io_response_destroy(&bad_resp);
+                conn->keep_alive = false;
+            }
+        } else if (op == IO_OP_SEND) {
+            uint32_t conn_id = (uint32_t)IO_DECODE_ID(ud);
+            io_conn_t *conn = find_conn_by_id(srv, conn_id);
+
+            if (conn == nullptr) {
+                processed++;
+                continue;
+            }
+
+            conn->send_active = false;
+
+            if (cqe->res < 0) {
+                (void)arm_close(srv, conn);
+            } else {
+                conn->send_offset += (size_t)cqe->res;
+                if (conn->send_offset < conn->send_len) {
+                    size_t remaining = conn->send_len - conn->send_offset;
+                    conn->send_active = true;
+                    struct io_uring_sqe *send_sqe = io_uring_get_sqe(ring);
+                    if (send_sqe != nullptr) {
+                        io_uring_prep_send(
+                            send_sqe, conn->fd,
+                            conn->send_buf + conn->send_offset,
+                            remaining, MSG_NOSIGNAL);
+                        io_uring_sqe_set_data64(
+                            send_sqe,
+                            IO_ENCODE_USERDATA(conn->id, IO_OP_SEND));
+                    }
+                } else {
+                    free(conn->send_buf);
+                    conn->send_buf = nullptr;
+                    conn->send_len = 0;
+                    conn->send_offset = 0;
+
+                    if (conn->keep_alive &&
+                        conn->state == IO_CONN_HTTP_ACTIVE) {
+                        (void)arm_recv(srv, conn);
+                    } else {
+                        (void)arm_close(srv, conn);
+                    }
+                }
+            }
+        } else if (op == IO_OP_CLOSE) {
+            uint32_t conn_id = (uint32_t)IO_DECODE_ID(ud);
+            io_conn_t *conn = find_conn_by_id(srv, conn_id);
+            if (conn != nullptr) {
+                io_conn_free(srv->pool, conn);
             }
         }
 
