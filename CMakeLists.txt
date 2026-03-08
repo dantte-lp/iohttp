@@ -306,3 +306,16 @@ if(BUILD_TESTING AND TARGET unity)
     )
     add_test(NAME test_tls_uring COMMAND test_tls_uring)
 endif()
+
+# ============================================================================
+# Sprint 3: HTTP/1.1 request/response abstractions
+# ============================================================================
+
+add_library(io_request STATIC src/http/io_request.c)
+target_include_directories(io_request PUBLIC ${CMAKE_SOURCE_DIR}/src)
+
+add_library(io_response STATIC src/http/io_response.c)
+target_include_directories(io_response PUBLIC ${CMAKE_SOURCE_DIR}/src)
+
+io_add_test(test_io_request tests/unit/test_io_request.c io_request)
+io_add_test(test_io_response tests/unit/test_io_response.c io_response)
