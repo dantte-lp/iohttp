@@ -326,10 +326,14 @@ RUN cd /tmp && \
 # Static Analysis
 # ═══════════════════════════════════════════════════════
 
+# PVS-Studio (license loaded from .env at runtime, not baked into image)
+RUN wget -qO /etc/yum.repos.d/viva64.repo https://cdn.pvs-studio.ru/etc/viva64.repo && \
+    dnf install -y pvs-studio && \
+    dnf clean all
+
+# CodeChecker (Ericsson, wraps Clang SA + clang-tidy + cppcheck)
 RUN pip3 install codechecker && \
     ln -sf /usr/local/bin/CodeChecker /usr/local/bin/codechecker 2>/dev/null || true
-
-# PVS-Studio removed — b4all license expired, not critical for dev workflow
 
 # Update ldconfig cache
 RUN ldconfig

@@ -41,10 +41,17 @@ tests/certs/*.csr
 *.log
 !docs/**/*.log
 
+# Credentials / environment
+.env
+.deployment-credentials
+
 # Temporary files
 *.tmp
 .DS_Store
-.deployment-credentials
+
+# Static analysis output
+PVS-Studio.log
+*.pvs.log
 
 # Benchmark results (JSON output)
 tests/bench/*.json

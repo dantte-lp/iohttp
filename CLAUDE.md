@@ -134,7 +134,7 @@ deploy/podman/      # Container configurations
 | yyjson        | 0.12+   | JSON serialization (~2.4 GB/s)|
 
 ### wolfSSL License Note
-wolfSSL license needs clarification before release — GitHub LICENSING says GPLv2, wolfssl.com says GPLv3, manual says GPLv2. If strictly GPLv2 (not GPLv2+), it's incompatible with iohttp's GPLv3. Resolve with wolfSSL Inc. or acquire commercial license.
+wolfSSL is dual-licensed: GPLv2+ (open source) or commercial. GPLv2-or-later is forward-compatible with GPLv3, so iohttp's GPLv3 license is compatible with wolfSSL's open-source license. No commercial license needed for GPLv3 projects.
 
 ## Testing Rules
 
@@ -143,6 +143,32 @@ wolfSSL license needs clarification before release — GitHub LICENSING says GPL
 - Sanitizers: ASan+UBSan (every commit), MSan (Clang, every commit), TSan (before merge)
 - Fuzzing: LibFuzzer targets in `tests/fuzz/` (Clang only)
 - Coverage target: >= 80%
+
+## Post-Sprint Quality Pipeline (MANDATORY)
+
+After completing each sprint, run the **full quality pipeline** inside the container before considering the sprint done. Single command:
+
+```bash
+# Full pipeline (6 stages: build → tests → format → cppcheck → PVS-Studio → CodeChecker)
+podman run --rm --security-opt seccomp=unconfined \
+  -v /opt/projects/repositories/iohttp:/workspace:Z \
+  localhost/iohttp-dev:latest bash -c "cd /workspace && ./scripts/quality.sh"
+
+# Individual CMake targets (inside container):
+cmake --build --preset clang-debug --target pvs-studio      # PVS-Studio
+cmake --build --preset clang-debug --target codechecker      # CodeChecker
+cmake --build --preset clang-debug --target cppcheck         # cppcheck
+cmake --build --preset clang-debug --target format-check     # clang-format
+```
+
+**Container image**: `localhost/iohttp-dev:latest` (built from `deploy/podman/Containerfile`)
+- Build: `podman build -t iohttp-dev:latest -f deploy/podman/Containerfile .`
+
+**Rules:**
+- Sprint code (new/modified files) MUST have **zero** PVS errors/warnings and **zero** CodeChecker HIGH/MEDIUM findings
+- Pre-existing findings in other files: track but don't block sprint
+- PVS-Studio license: loaded from `.env` file (`PVS_NAME` / `PVS_KEY`), NEVER commit credentials
+- `.env` is in `.gitignore`, `.env.example` shows required variables
 
 ## Architecture Decisions (DO NOT CHANGE)
 
@@ -157,6 +183,71 @@ wolfSSL license needs clarification before release — GitHub LICENSING says GPL
 - Scalar for API documentation (not Swagger UI)
 - Single-binary deployment via C23 `#embed` for static assets
 - GPLv3 license
+
+## Production Requirements
+
+### Graceful Shutdown (MANDATORY)
+- Two-phase: stop accepting → drain active connections → close
+- HTTP/2: two-phase GOAWAY (signal no new streams, then drain existing)
+- Configurable drain timeout (default 30s), force-close after timeout
+- Health check endpoint returns 503 during drain phase
+- SIGTERM → graceful, SIGQUIT → immediate
+
+### PROXY Protocol
+- v1 (text) and v2 (binary with TLV extensions) support
+- **EXPLICIT listener mode only** — never auto-detect (security risk)
+- **Trusted listeners only** — configure allowlist of proxy source IPs
+- Extract: source/destination IP + port, TLV extensions (SSL info, unique ID)
+- Timeout: 3s for PROXY header read (prevent slowloris on trusted port)
+
+### SPA Fallback
+- History API: serve `index.html` for unknown routes that don't match `/api/*` prefix
+- **NOT for API routes**: requests to `/api/*` must return proper 404 JSON
+- Cache policy: immutable for hashed assets (`/assets/*`), no-cache for `index.html`
+- ETag + Last-Modified for conditional requests (304 Not Modified)
+
+### Health Check Endpoints
+- `/health` — basic liveness (200 OK if server is running)
+- `/ready` — readiness (200 OK if accepting connections, 503 during drain/startup)
+- `/live` — deep liveness (checks io_uring ring, TLS context, buffer pools)
+- Configurable: enable/disable, custom paths, custom checks
+
+### Request Context
+- Request ID: generate UUID per request, propagate via `X-Request-Id` header
+- Trace context: W3C `traceparent`/`tracestate` header propagation
+- Available in middleware, handlers, and logging
+
+### Backpressure
+- Connection pool: stop multishot accept when pool > 90% capacity, re-arm when < 80%
+- Buffer rings: double-buffering on ENOBUFS (two groups, swap on exhaust)
+- Send queue: bounded per-connection depth, reject/backpressure on overflow
+- Overload: return 503 Service Unavailable when capacity exceeded
+
+## Missing Features Roadmap
+
+**P0 (blocks production use):**
+- Graceful shutdown with drain mode
+- Health check endpoint framework
+- Request ID middleware
+- Structured logging with custom fields and levels
+- Per-route timeout configuration
+
+**P1 (production hardening):**
+- HTTP caching (RFC 9111 compliance)
+- Content negotiation (Accept, Accept-Encoding)
+- Multipart/form-data parser
+- Cookie handling (RFC 6265bis: Set-Cookie, SameSite, Secure)
+- Circuit breaker pattern
+- PRIORITY_UPDATE (RFC 9218) for HTTP/2
+- Streaming request body (chunked input)
+
+**P2 (completeness):**
+- HTTP/3 Datagrams (RFC 9297) — needed for WebTransport
+- WebTransport
+- Distributed tracing hooks (OpenTelemetry)
+- Host-based and header-based routing
+- Configuration hot reload
+- Dynamic connection pool scaling
 
 ## Git Workflow
 

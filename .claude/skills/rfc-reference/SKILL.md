@@ -10,8 +10,8 @@ description: Use when implementing HTTP, TLS, QUIC, WebSocket, or security featu
 | Priority | RFCs | Domain |
 |----------|------|--------|
 | P0 — Core | 9110, 9112, 9113, 9114, 9000, 9001, 9002, 8446, 7301, 6455 | HTTP/1.1, /2, /3, QUIC, TLS, WebSocket |
-| P1 — Production | 9111, 9218, 6797, 6750, 7519, 9325, 9457, 7301 | Caching, priorities, HSTS, auth, security |
-| P2 — Completeness | 8441, 9220, 7692, 7932, 8478, 6265, 8288, 9368, 9369 | WS over h2/h3, compression, cookies, QUICv2 |
+| P1 — Production | 9111, 9218, 6797, 6750, 7519, 9325, 9457, 7301, 6265bis, 9369 | Caching, priorities, HSTS, auth, cookies, security |
+| P2 — Completeness | 8441, 9220, 7692, 7932, 8478, 6265, 8288, 9368, 9369, 9211, 9297, 7578 | WS over h2/h3, compression, cookies, cache-status, QUICv2 |
 | P3 — Extended | 6570, 9221, 9530, 8705, 8297, 9512 | URI templates, datagrams, hints |
 
 ## HTTP Core
@@ -19,26 +19,28 @@ description: Use when implementing HTTP, TLS, QUIC, WebSocket, or security featu
 | RFC | Title | Key Sections |
 |-----|-------|-------------|
 | **9110** | HTTP Semantics | §8 Content, §9 Methods, §12 Content Negotiation, §14 Range, §15 Status Codes |
-| **9111** | HTTP Caching | §5 Cache-Control, §8 Validation (ETag, Last-Modified, Vary) |
+| **9111** | HTTP Caching | §2-5 Cache, freshness, validation, expiration |
 | **9112** | HTTP/1.1 | §2.1 Message Format, §6 Chunked TE, §7 Connection Management, §9 Keep-Alive |
 | **7233** | Range Requests | §2 Range, §4 Content-Range, Accept-Ranges — resume download, video streaming |
 | **7232** | Conditional Requests | §2 If-Match, §3 If-None-Match, §4 If-Modified-Since |
+| **9211** | Cache-Status | §2-3 Cache status field — diagnostic cache reporting |
 
-### Request Smuggling Protection (RFC 9112)
+### Request Smuggling Protection (RFC 9112 §6.3, §11.2)
 
-- §6.3: Reject duplicate Content-Length headers
-- §6.3: Reject Content-Length + Transfer-Encoding together
-- §5.2: Reject obs-fold in headers
-- §6.3: Reject non-digit Content-Length values
-- §6.3: chunked MUST be last Transfer-Encoding
-- §3.3: Require Host header for HTTP/1.1
+- Reject duplicate `Content-Length` headers
+- Reject `Content-Length` + `Transfer-Encoding` together
+- Reject obs-fold in headers (line folding)
+- Reject non-digit `Content-Length` values
+- `chunked` MUST be last `Transfer-Encoding`
+- Require `Host` header for HTTP/1.1 requests
+- Close connection on malformed chunked encoding
 
 ## HTTP/2
 
 | RFC | Title | Key Sections |
 |-----|-------|-------------|
 | **9113** | HTTP/2 | §4 Frames, §5 Streams, §6.5 SETTINGS, §6.8 GOAWAY |
-| **9218** | Extensible Priorities | §4 Priority header (`u=`, `i=`) — replaces HTTP/2 priority trees |
+| **9218** | Extensible Priorities | §4-5 Priority scheme, signals — replaces HTTP/2 priority trees |
 | **8740** | TLS 1.3 with HTTP/2 | Prohibits renegotiation, limits post-handshake auth |
 
 ## HTTP/3 & QUIC
@@ -51,9 +53,10 @@ description: Use when implementing HTTP, TLS, QUIC, WebSocket, or security featu
 | **9001** | QUIC-TLS | §4 Handshake, §5 0-RTT, §7 Key Update |
 | **9002** | QUIC Loss Detection | §5 RTT Estimation, §6 Loss Detection, §7 Congestion Control |
 | **9221** | QUIC Datagrams | Unreliable datagrams (WebTransport foundation) |
+| **9297** | QUIC Datagrams (HTTP) | §2-5 Datagram frames — needed for WebTransport |
 | **9287** | Greasing QUIC Bit | Anti-ossification — ngtcp2 supports |
 | **9368** | QUIC Version Negotiation | Compatible version negotiation without RTT penalty |
-| **9369** | QUIC Version 2 | Changed salt/key derivation, ngtcp2 supports |
+| **9369** | QUIC Version 2 | §3-4 Version negotiation, changed salt/key derivation, ngtcp2 supports |
 
 ## TLS
 
@@ -79,9 +82,9 @@ description: Use when implementing HTTP, TLS, QUIC, WebSocket, or security featu
 | RFC | Title | Key Sections |
 |-----|-------|-------------|
 | **6455** | WebSocket Protocol | §4 Handshake, §5 Framing, §7 Close, §10 Security |
-| **7692** | WS Compression | permessage-deflate extension |
-| **8441** | WS over HTTP/2 | Extended CONNECT method for WS over h2 |
-| **9220** | WS over HTTP/3 | WS over HTTP/3 via Extended CONNECT |
+| **7692** | WS Compression | §7 permessage-deflate extension |
+| **8441** | WS over HTTP/2 | §3-5 Extended CONNECT, settings for WS over h2 |
+| **9220** | WS over HTTP/3 | §3-4 Extended CONNECT for HTTP/3 |
 
 ### wslay Integration Notes
 
@@ -93,7 +96,7 @@ description: Use when implementing HTTP, TLS, QUIC, WebSocket, or security featu
 
 | RFC | Title | Header |
 |-----|-------|--------|
-| **6797** | HSTS | `Strict-Transport-Security` |
+| **6797** | HSTS | `Strict-Transport-Security` (§6: strict-transport-security header) |
 | **9163** | Expect-CT (deprecated) | `Expect-CT` |
 | **6454** | Web Origin | `Origin` |
 
@@ -109,6 +112,7 @@ CORS is defined by WHATWG Fetch Standard, not an RFC.
 | **7519** | JWT | JSON Web Token format |
 | **7515** | JWS | JWT signing |
 | **6265** | Cookies | `Set-Cookie`, `Cookie`, SameSite |
+| **6265bis** | Cookies (updated) | §4-5: Set-Cookie, SameSite, Secure, HttpOnly |
 
 ## Content Encoding & Compression
 
@@ -117,8 +121,8 @@ CORS is defined by WHATWG Fetch Standard, not an RFC.
 | **9110 §8.4** | Content-Encoding | Framework |
 | **1952** | GZIP | `gzip` |
 | **1951** | DEFLATE | `deflate` |
-| **7932** | Brotli | `br` |
-| **8478** | Zstandard | `zstd` |
+| **7932** | Brotli | §1-11 Compressed data format, `br` |
+| **8478** | Zstandard | §3-8 Frame format, compression, `zstd` |
 
 ## Structured Fields
 
@@ -134,8 +138,8 @@ CORS is defined by WHATWG Fetch Standard, not an RFC.
 | **3986** | URI | URI syntax — path parsing, percent-encoding |
 | **6570** | URI Template | Route patterns with parameters |
 | **8259** | JSON | `application/json` format |
-| **9457** | Problem Details | `application/problem+json` error responses |
-| **7578** | multipart/form-data | File uploads |
+| **9457** | Problem Details | §3 Members, §6.1 Content type — `application/problem+json` error responses |
+| **7578** | multipart/form-data | §4-5 Definition, encoding — file uploads |
 
 ## PROXY Protocol
 

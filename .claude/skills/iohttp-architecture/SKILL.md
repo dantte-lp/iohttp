@@ -80,17 +80,21 @@ src/ws/                  # WebSocket + SSE
 ## Connection State Machine
 
 ```
-ACCEPTING
-  → PROXY_HEADER        (if listener expects PROXY protocol)
-  → TLS_HANDSHAKE       (if TLS enabled)
-  → PROTOCOL_NEGOTIATION (ALPN → h2/http1.1)
-  → HTTP_ACTIVE
-      → WS_ACTIVE       (after WebSocket upgrade)
-      → SSE_ACTIVE      (after SSE response start)
-  → DRAINING            (graceful shutdown)
-  → CLOSING
-  → CLOSED
+ACCEPTING → PROXY_HEADER → TLS_HANDSHAKE → PROTOCOL_NEGOTIATION → HTTP_ACTIVE
+                                                                      ↓
+                                                        WS_ACTIVE / SSE_ACTIVE
+                                                                      ↓
+                                                    DRAINING → CLOSING → CLOSED
 ```
+
+- `ACCEPTING → PROXY_HEADER`: only if listener expects PROXY protocol
+- `ACCEPTING → TLS_HANDSHAKE`: only if TLS enabled (skips PROXY_HEADER)
+- `ACCEPTING → HTTP_ACTIVE`: plaintext without PROXY protocol
+- `HTTP_ACTIVE → WS_ACTIVE`: after WebSocket upgrade handshake
+- `HTTP_ACTIVE → SSE_ACTIVE`: after SSE response start
+- Any active state → `DRAINING`: graceful shutdown signal received
+- `DRAINING → CLOSING`: drain complete or drain timeout expired
+- `CLOSING → CLOSED`: all pending io_uring ops cancelled and CQEs reaped
 
 Each state has an associated timeout (linked timeout via io_uring).
 
@@ -137,6 +141,47 @@ Upper layers work with protocol-independent abstractions:
 | P2 | Scale-up | Multi-reactor ring-per-thread, zero-copy send, registered files/buffers, mTLS metadata, liboas adapter |
 | P3 | HTTP/2 + WS + SSE | HTTP/2 (nghttp2), WebSocket, SSE, advanced observability, graceful drain |
 | P4 | HTTP/3 / QUIC | QUIC transport (ngtcp2), HTTP/3 (nghttp3), production hardening |
+
+## Production Features (MANDATORY for 0.1.0)
+
+### Graceful Shutdown
+- Two-phase: stop accepting → drain active connections → close
+- HTTP/2: two-phase GOAWAY (advertise last-stream-id=MAX, then real last-stream-id)
+- HTTP/3: GOAWAY frame with stream ID
+- Configurable drain timeout (default 30s), force-cancel io_uring ops after timeout
+- Health check endpoint returns 503 during drain phase
+
+### Health Check Endpoints
+- `/health` — liveness (200 OK if event loop running)
+- `/ready` — readiness (503 during startup/drain, 200 when accepting)
+- `/live` — deep check (io_uring ring responsive, TLS context valid, buffer pools healthy)
+- Registered as internal routes, excluded from middleware chain
+
+### Request Context Propagation
+- `io_request_id_t`: UUID generated per request, available in `io_request_t`
+- Propagated via `X-Request-Id` response header
+- W3C Trace Context: `traceparent`/`tracestate` header pass-through
+- Available in structured logging context
+
+### Observability Hooks
+- Metrics: active connections, request rate, latency percentiles, error rate, TLS handshake time
+- Logging: structured JSON with request_id, client_ip, method, path, status, duration_ms
+- Tracing: hooks for OpenTelemetry span creation/propagation (not built-in OTel dependency)
+
+## Critical Missing Features (P0 blockers)
+
+| Feature | Blocks | RFC/Spec |
+|---------|--------|----------|
+| Graceful shutdown | Production deployment | — |
+| Health checks | Kubernetes/load balancer | — |
+| Request ID | Debugging, tracing | — |
+| Structured logging | Observability | — |
+| Circuit breaker | Resilience | — |
+| Per-route timeouts | SLA enforcement | — |
+| Multipart parser | File upload | RFC 7578 |
+| Cookie handling | Sessions, auth | RFC 6265bis |
+| HTTP caching | CDN, perf | RFC 9111 |
+| Content negotiation | API versioning | RFC 9110 §12 |
 
 ## liboas Integration Points
 

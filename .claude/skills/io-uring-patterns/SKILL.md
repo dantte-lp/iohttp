@@ -302,6 +302,33 @@ For ordered multi-buffer sends: `IOSQE_IO_LINK` chains.
 - **Ring-per-worker + CPU pinning**: cache locality, no contention.
 - **NUMA**: allocate ring memory on local node.
 
+## Backpressure Design
+
+### Connection Pool Watermarks
+- **High watermark (90%)**: stop multishot accept re-arm, connections queue in kernel backlog
+- **Low watermark (80%)**: re-arm multishot accept
+- Log warning at high watermark, metric counter for rejected connections
+- `SO_BACKLOG` handles kernel-level queuing during pause
+
+### Buffer Ring Exhaustion
+- **ENOBUFS** from provided buffer ring = pool exhausted
+- **Double-buffering strategy**: maintain two buffer groups, swap active group on ENOBUFS
+- While swapped: return buffers from completed CQEs to exhausted group
+- When exhausted group recovers: swap back on next ENOBUFS
+- Never block CQE processing — always have a buffer group available
+
+### Send Queue Limits
+- Per-connection send queue: bounded depth (default 64 entries)
+- When full: apply backpressure to HTTP layer (stop reading request body)
+- HTTP/2: send WINDOW_UPDATE only when send queue has capacity
+- HTTP/1.1: stop reading next request until current response sent (natural pipelining limit)
+
+### Overload Protection
+- Track pending SQE count: if > 75% of queue_depth, defer new work
+- Return 503 Service Unavailable for new HTTP requests during overload
+- WebSocket/SSE: send close frame with 1013 (Try Again Later)
+- Metric: `io_overload_total` counter
+
 ## Anti-patterns (NEVER DO)
 
 | Anti-pattern | Fix |
@@ -314,6 +341,30 @@ For ordered multi-buffer sends: `IOSQE_IO_LINK` chains.
 | WANT_READ/WANT_WRITE as fatal | Normal — arm recv/send, resume |
 | Close fd before all CQE | Cancel → wait → close |
 | Submit per-SQE | Accumulate, batch submit |
+
+## Multi-Reactor Scaling
+
+### Ring-Per-Thread Model
+- Production: one `io_uring` ring per worker thread, CPU-pinned
+- Dev mode: single ring, single thread (simpler debugging)
+- Each reactor owns its connections exclusively — no cross-thread contention
+
+### Connection Handoff (IORING_OP_MSG_RING)
+- Main thread accepts connections, distributes to workers via MSG_RING
+- Least-connections load balancing (track count per worker)
+- MSG_RING delivers fd + metadata to target ring's CQE
+- Target worker sets up connection state on CQE receipt
+
+### Per-Reactor ID Space
+- Connection IDs encode reactor index: `(reactor_id << 24) | local_conn_id`
+- Allows O(1) routing of CQE to owning reactor
+- Max 256 reactors × 16M connections per reactor
+
+### Shutdown Coordination
+- Main sends MSG_RING with shutdown signal to each worker
+- Workers enter drain mode: stop accept, finish in-flight, close all
+- Main waits for all workers to complete (join threads)
+- Two-phase: graceful timeout → force cancel remaining ops
 
 ## Library Integration
 
