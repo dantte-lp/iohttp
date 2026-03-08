@@ -1,0 +1,341 @@
+FROM oraclelinux:10
+
+LABEL maintainer="iohttp development team"
+LABEL description="Development environment for iohttp — C23 embedded HTTP server with io_uring and wolfSSL"
+
+# Build arguments for tool versions
+ARG CMAKE_VERSION=4.2.3
+ARG CLANG_VERSION=22.1.0
+ARG DOXYGEN_VERSION=1.16.1
+ARG UNITY_VERSION=2.6.1
+ARG WOLFSSL_VERSION=5.8.2
+ARG LIBURING_VERSION=2.14
+ARG YYJSON_VERSION=0.12.0
+ARG NGHTTP2_VERSION=1.65.0
+ARG NGTCP2_VERSION=1.12.0
+ARG NGHTTP3_VERSION=1.9.0
+ARG WSLAY_VERSION=1.1.1
+ARG SFPARSE_VERSION=0.3.0
+
+# Enable CodeReady Builder repo (for -devel packages not in baseos/appstream)
+RUN dnf install -y oraclelinux-developer-release-el10 && \
+    dnf config-manager --set-enabled ol10_codeready_builder && \
+    dnf clean all
+
+# Install base development tools (system gcc needed for libraries that build with default cc)
+RUN dnf install -y \
+    gcc \
+    gcc-c++ \
+    make \
+    autoconf \
+    automake \
+    libtool \
+    pkgconfig \
+    git \
+    vim \
+    gdb \
+    valgrind \
+    strace \
+    wget \
+    curl \
+    tar \
+    xz \
+    bzip2 \
+    patch \
+    flex \
+    bison \
+    && dnf clean all
+
+# ═══════════════════════════════════════════════════════
+# Compilers (from source / pre-built)
+# ═══════════════════════════════════════════════════════
+
+# Install Clang 22.1.0 from pre-built release binary (selective — only needed tools)
+RUN cd /tmp && \
+    curl -fsSL -o llvm.tar.xz \
+        https://github.com/llvm/llvm-project/releases/download/llvmorg-${CLANG_VERSION}/LLVM-${CLANG_VERSION}-Linux-X64.tar.xz && \
+    tar xJf llvm.tar.xz && \
+    LLVM_DIR=LLVM-${CLANG_VERSION}-Linux-X64 && \
+    CLANG_MAJOR=$(echo ${CLANG_VERSION} | cut -d. -f1) && \
+    for tool in clang clang++ clang-cl clang-cpp clang-${CLANG_MAJOR} \
+                clang-format clang-tidy clang-apply-replacements \
+                clang-rename clang-check \
+                lld ld.lld ld64.lld wasm-ld \
+                llvm-ar llvm-nm llvm-objdump llvm-ranlib llvm-strip \
+                llvm-symbolizer llvm-profdata llvm-cov llvm-objcopy \
+                llvm-readelf llvm-size llvm-strings llvm-addr2line \
+                scan-build scan-view; do \
+        [ -e "$LLVM_DIR/bin/$tool" ] && cp -a "$LLVM_DIR/bin/$tool" /usr/local/bin/; \
+    done && \
+    cp -a $LLVM_DIR/lib/clang /usr/local/lib/ && \
+    rm -rf /tmp/LLVM-* /tmp/llvm.tar.xz && \
+    ldconfig && \
+    clang --version
+
+# Install GCC 15 from gcc-toolset-15 (OL10 appstream, pre-built)
+RUN dnf install -y \
+        gcc-toolset-15-gcc \
+        gcc-toolset-15-gcc-c++ \
+        gcc-toolset-15-libatomic-devel \
+        gcc-toolset-15-libasan-devel \
+        gcc-toolset-15-libubsan-devel \
+        gcc-toolset-15-libtsan-devel \
+        gcc-toolset-15-binutils \
+    && dnf clean all && \
+    ln -sf /opt/rh/gcc-toolset-15/root/usr/bin/gcc /usr/local/bin/gcc-15 && \
+    ln -sf /opt/rh/gcc-toolset-15/root/usr/bin/g++ /usr/local/bin/g++-15 && \
+    gcc-15 --version
+
+# Install system dependencies from OL10 repos
+RUN dnf install -y \
+    zlib-devel \
+    brotli-devel \
+    lz4-devel \
+    openssl-devel \
+    && dnf clean all
+
+# Install code quality and documentation tools
+RUN dnf install -y \
+    graphviz \
+    python3 \
+    python3-pip \
+    && dnf clean all
+
+# Install ninja from PyPI
+RUN pip3 install ninja
+
+# Build and install CMake from source
+RUN cd /tmp && \
+    wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}.tar.gz && \
+    tar xzf cmake-${CMAKE_VERSION}.tar.gz && \
+    cd cmake-${CMAKE_VERSION} && \
+    ./bootstrap --prefix=/usr/local --parallel=$(nproc) && \
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && rm -rf cmake-*
+
+# Build and install cppcheck from source
+RUN cd /tmp && \
+    git clone --depth 1 --branch 2.18.3 https://github.com/danmar/cppcheck.git && \
+    cd cppcheck && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && rm -rf cppcheck
+
+# Build and install Doxygen from source
+RUN cd /tmp && \
+    wget https://github.com/doxygen/doxygen/archive/refs/tags/Release_${DOXYGEN_VERSION//./_}.tar.gz && \
+    tar xzf Release_${DOXYGEN_VERSION//./_}.tar.gz && \
+    cd doxygen-Release_${DOXYGEN_VERSION//./_} && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && rm -rf doxygen-* Release_*
+
+# Install Unity testing framework
+RUN cd /tmp && \
+    wget https://github.com/ThrowTheSwitch/Unity/archive/refs/tags/v${UNITY_VERSION}.tar.gz && \
+    tar xzf v${UNITY_VERSION}.tar.gz && \
+    cd Unity-${UNITY_VERSION} && \
+    mkdir -p /usr/local/include/unity && \
+    mkdir -p /usr/local/src/unity && \
+    cp src/unity.h src/unity_internals.h /usr/local/include/unity/ && \
+    cp src/unity.c /usr/local/src/unity/ && \
+    cd /tmp && rm -rf Unity-* v${UNITY_VERSION}.tar.gz
+
+# ═══════════════════════════════════════════════════════
+# Core: wolfSSL (TLS 1.3 + QUIC crypto)
+# ═══════════════════════════════════════════════════════
+
+# Build wolfSSL with QUIC support for ngtcp2_crypto_wolfssl
+# NOTE: --disable-sp-asm due to GCC 14 register syntax incompatibility
+RUN cd /tmp && \
+    wget https://github.com/wolfSSL/wolfssl/archive/refs/tags/v${WOLFSSL_VERSION}-stable.tar.gz && \
+    tar xzf v${WOLFSSL_VERSION}-stable.tar.gz && \
+    cd wolfssl-${WOLFSSL_VERSION}-stable && \
+    ./autogen.sh && \
+    ./configure \
+        --enable-tls13 \
+        --enable-dtls \
+        --enable-dtls13 \
+        --enable-session-ticket \
+        --enable-alpn \
+        --enable-sni \
+        --enable-secure-renegotiation \
+        --enable-extended-master \
+        --enable-ocsp \
+        --enable-crl \
+        --enable-aesni \
+        --enable-intelasm \
+        --disable-oldtls \
+        --enable-harden \
+        --enable-sp \
+        --disable-sp-asm \
+        --enable-opensslextra \
+        --enable-opensslall \
+        --enable-curve25519 \
+        --enable-ed25519 \
+        --enable-sha3 \
+        --enable-shake256 \
+        --enable-postauth \
+        --enable-hrrcookie \
+        --enable-quic \
+        --prefix=/usr/local \
+        CFLAGS="-std=gnu11 -O2 -g -fstack-protector-strong" \
+        LDFLAGS="-Wl,-z,relro -Wl,-z,now" && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd /tmp && rm -rf wolfssl-*
+
+# ═══════════════════════════════════════════════════════
+# I/O: liburing (io_uring wrappers)
+# ═══════════════════════════════════════════════════════
+
+RUN cd /tmp && \
+    wget https://github.com/axboe/liburing/archive/refs/tags/liburing-${LIBURING_VERSION}.tar.gz && \
+    tar xzf liburing-${LIBURING_VERSION}.tar.gz && \
+    cd liburing-liburing-${LIBURING_VERSION} && \
+    ./configure --prefix=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd /tmp && rm -rf liburing-*
+
+# ═══════════════════════════════════════════════════════
+# HTTP/2: nghttp2
+# ═══════════════════════════════════════════════════════
+
+RUN cd /tmp && \
+    wget https://github.com/nghttp2/nghttp2/releases/download/v${NGHTTP2_VERSION}/nghttp2-${NGHTTP2_VERSION}.tar.gz && \
+    tar xzf nghttp2-${NGHTTP2_VERSION}.tar.gz && \
+    cd nghttp2-${NGHTTP2_VERSION} && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DENABLE_LIB_ONLY=ON && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd /tmp && rm -rf nghttp2-*
+
+# ═══════════════════════════════════════════════════════
+# QUIC: ngtcp2 + ngtcp2_crypto_wolfssl
+# ═══════════════════════════════════════════════════════
+
+# ngtcp2 is the ONLY QUIC library with native wolfSSL support
+RUN cd /tmp && \
+    wget https://github.com/ngtcp2/ngtcp2/releases/download/v${NGTCP2_VERSION}/ngtcp2-${NGTCP2_VERSION}.tar.gz && \
+    tar xzf ngtcp2-${NGTCP2_VERSION}.tar.gz && \
+    cd ngtcp2-${NGTCP2_VERSION} && \
+    mkdir build && cd build && \
+    PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DENABLE_WOLFSSL=ON && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd /tmp && rm -rf ngtcp2-*
+
+# ═══════════════════════════════════════════════════════
+# HTTP/3: nghttp3
+# ═══════════════════════════════════════════════════════
+
+RUN cd /tmp && \
+    wget https://github.com/ngtcp2/nghttp3/releases/download/v${NGHTTP3_VERSION}/nghttp3-${NGHTTP3_VERSION}.tar.gz && \
+    tar xzf nghttp3-${NGHTTP3_VERSION}.tar.gz && \
+    cd nghttp3-${NGHTTP3_VERSION} && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DENABLE_LIB_ONLY=ON && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd /tmp && rm -rf nghttp3-*
+
+# ═══════════════════════════════════════════════════════
+# WebSocket: wslay (RFC 6455, I/O-agnostic)
+# ═══════════════════════════════════════════════════════
+
+RUN cd /tmp && \
+    wget https://github.com/tatsuhiro-t/wslay/releases/download/release-${WSLAY_VERSION}/wslay-${WSLAY_VERSION}.tar.gz && \
+    tar xzf wslay-${WSLAY_VERSION}.tar.gz && \
+    cd wslay-${WSLAY_VERSION} && \
+    ./configure --prefix=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd /tmp && rm -rf wslay-*
+
+# ═══════════════════════════════════════════════════════
+# Structured Fields: sfparse (RFC 9651)
+# ═══════════════════════════════════════════════════════
+
+RUN cd /tmp && \
+    wget https://github.com/ngtcp2/sfparse/releases/download/v${SFPARSE_VERSION}/sfparse-${SFPARSE_VERSION}.tar.gz && \
+    tar xzf sfparse-${SFPARSE_VERSION}.tar.gz && \
+    cd sfparse-${SFPARSE_VERSION} && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd /tmp && rm -rf sfparse-*
+
+# ═══════════════════════════════════════════════════════
+# JSON: yyjson
+# ═══════════════════════════════════════════════════════
+
+RUN cd /tmp && \
+    wget https://github.com/ibireme/yyjson/archive/refs/tags/${YYJSON_VERSION}.tar.gz && \
+    tar xzf ${YYJSON_VERSION}.tar.gz && \
+    cd yyjson-${YYJSON_VERSION} && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd /tmp && rm -rf yyjson-*
+
+# ═══════════════════════════════════════════════════════
+# Linker: mold (fast debug builds)
+# ═══════════════════════════════════════════════════════
+
+RUN cd /tmp && \
+    git clone --depth 1 https://github.com/rui314/mold.git && \
+    cd mold && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && rm -rf mold
+
+# ═══════════════════════════════════════════════════════
+# Static Analysis
+# ═══════════════════════════════════════════════════════
+
+RUN pip3 install codechecker && \
+    ln -sf /usr/local/bin/CodeChecker /usr/local/bin/codechecker 2>/dev/null || true
+
+# Update ldconfig cache
+RUN ldconfig
+
+CMD ["/bin/bash"]

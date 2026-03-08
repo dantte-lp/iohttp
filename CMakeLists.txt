@@ -25,7 +25,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 add_compile_options(
     -Wall -Wextra -Wpedantic -Werror
-    -Wformat=2 -Wformat-overflow=2 -Wformat-truncation=2
+    -Wformat=2
     -Wconversion -Wsign-conversion
     -Wdouble-promotion -Wfloat-equal
     -Wshadow -Wundef
@@ -35,9 +35,20 @@ add_compile_options(
     -Wredundant-decls
     -Wvla
     -fstack-protector-strong
-    -D_FORTIFY_SOURCE=3
     -fPIE
 )
+
+# GCC-specific warning flags (not supported by Clang)
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    add_compile_options(
+        -Wformat-overflow=2 -Wformat-truncation=2
+    )
+endif()
+
+# _FORTIFY_SOURCE requires optimization; only enable for Release/RelWithDebInfo
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(_FORTIFY_SOURCE=3)
+endif()
 
 add_link_options(
     -pie
@@ -88,27 +99,36 @@ find_library(YYJSON_LIBRARY NAMES yyjson)
 if(BUILD_TESTING)
     enable_testing()
 
-    # Unity test framework (bundled or system)
-    find_path(UNITY_INCLUDE_DIR NAMES unity.h PATH_SUFFIXES unity)
-    find_library(UNITY_LIBRARY NAMES unity)
+    # Unity test framework (compile from source)
+    find_path(UNITY_INCLUDE_DIR unity/unity.h
+        PATHS /usr/local/include /usr/include
+    )
+    find_path(UNITY_SRC_DIR unity.c
+        PATHS /usr/local/src/unity /usr/src/unity
+    )
 
-    if(UNITY_INCLUDE_DIR AND UNITY_LIBRARY)
-        message(STATUS "Found Unity: ${UNITY_LIBRARY}")
+    if(UNITY_INCLUDE_DIR AND UNITY_SRC_DIR)
+        message(STATUS "Found Unity: ${UNITY_SRC_DIR}/unity.c")
+        add_library(unity STATIC ${UNITY_SRC_DIR}/unity.c)
+        target_include_directories(unity PUBLIC ${UNITY_INCLUDE_DIR} ${UNITY_INCLUDE_DIR}/unity)
     else()
         message(WARNING "Unity test framework not found — tests disabled")
     endif()
 
     # Test helper macro
     macro(io_add_test TEST_NAME TEST_SRC)
-        if(UNITY_INCLUDE_DIR AND UNITY_LIBRARY)
+        if(TARGET unity)
             add_executable(${TEST_NAME} ${TEST_SRC})
             target_include_directories(${TEST_NAME} PRIVATE
                 ${CMAKE_SOURCE_DIR}/src
-                ${UNITY_INCLUDE_DIR}
             )
             target_link_libraries(${TEST_NAME} PRIVATE
-                ${UNITY_LIBRARY}
+                unity
                 ${ARGN}
+            )
+            # Unity test functions lack prototypes by design
+            target_compile_options(${TEST_NAME} PRIVATE
+                -Wno-missing-prototypes -Wno-missing-declarations
             )
             add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
         endif()
@@ -139,10 +159,9 @@ if(CLANG_FORMAT)
     )
 endif()
 
-# clang-tidy
+# clang-tidy (run via 'lint' target, not during normal builds)
 find_program(CLANG_TIDY clang-tidy)
 if(CLANG_TIDY)
-    set(CMAKE_C_CLANG_TIDY ${CLANG_TIDY})
     add_custom_target(lint
         COMMAND ${CLANG_TIDY} -p ${CMAKE_BINARY_DIR}
             ${CMAKE_SOURCE_DIR}/src/**/*.c
@@ -193,7 +212,6 @@ endmacro()
 # Libraries (to be populated per sprint)
 # ============================================================================
 
-# Sprint 1: Core io_uring event loop
 # Sprint 2: wolfSSL TLS integration
 # Sprint 3: HTTP/1.1 parser (picohttpparser)
 # Sprint 4: Router and middleware
@@ -201,3 +219,15 @@ endmacro()
 # Sprint 6: HTTP/2 (nghttp2)
 # Sprint 7: HTTP/3 (ngtcp2 + nghttp3)
 # Sprint 8: Polish, benchmarks, packaging
+
+# ============================================================================
+# Sprint 1: Core io_uring event loop
+# ============================================================================
+
+add_library(io_loop STATIC src/core/io_loop.c)
+target_include_directories(io_loop PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(io_loop PUBLIC ${LIBURING_INCLUDE_DIRS})
+target_link_directories(io_loop PUBLIC ${LIBURING_LIBRARY_DIRS})
+target_link_libraries(io_loop PUBLIC ${LIBURING_LIBRARIES})
+
+io_add_test(test_io_loop tests/unit/test_io_loop.c io_loop)
