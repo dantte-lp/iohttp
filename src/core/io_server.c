@@ -11,6 +11,7 @@
 #include "http/io_response.h"
 #include "middleware/io_middleware.h"
 #include "router/io_router.h"
+#include "tls/io_tls.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -29,8 +30,8 @@ struct io_server {
     io_server_config_t config;
     io_loop_t *loop;
     io_conn_pool_t *pool;
-    io_router_t *router;               /* NOT owned */
-    io_tls_ctx_t *tls_ctx;             /* NOT owned */
+    io_router_t *router;   /* NOT owned */
+    io_tls_ctx_t *tls_ctx; /* NOT owned */
     io_server_on_request_fn on_request;
     void *on_request_data;
     int listen_fd;
@@ -186,8 +187,7 @@ static int arm_recv(io_server_t *srv, io_conn_t *conn)
         return -ENOSPC;
     }
 
-    io_uring_prep_recv(sqe, conn->fd,
-                       conn->recv_buf + conn->recv_len,
+    io_uring_prep_recv(sqe, conn->fd, conn->recv_buf + conn->recv_len,
                        conn->recv_buf_size - conn->recv_len, 0);
     io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(conn->id, IO_OP_RECV));
 
@@ -209,20 +209,49 @@ static io_conn_t *find_conn_by_id(io_server_t *srv, uint32_t conn_id)
     return nullptr;
 }
 
-static int arm_send(io_server_t *srv, io_conn_t *conn,
-                    const uint8_t *data, size_t len)
+static int arm_send(io_server_t *srv, io_conn_t *conn, const uint8_t *data, size_t len)
 {
     if (conn->send_active) {
         return -EBUSY;
     }
 
-    free(conn->send_buf);
-    conn->send_buf = malloc(len);
-    if (conn->send_buf == nullptr) {
-        return -ENOMEM;
+    const uint8_t *send_data = data;
+    size_t send_len = len;
+    uint8_t *encrypted = nullptr;
+
+    /* Encrypt if TLS active and handshake done */
+    if (conn->tls_ctx != nullptr && conn->tls_done) {
+        io_tls_conn_t *tls = (io_tls_conn_t *)conn->tls_ctx;
+        int wret = io_tls_write(tls, data, len);
+        if (wret < 0) {
+            return wret;
+        }
+
+        const uint8_t *out_data = nullptr;
+        size_t out_len = 0;
+        if (io_tls_get_output(tls, &out_data, &out_len) == 0 && out_len > 0) {
+            encrypted = malloc(out_len);
+            if (encrypted == nullptr) {
+                return -ENOMEM;
+            }
+            memcpy(encrypted, out_data, out_len);
+            io_tls_consume_output(tls, out_len);
+            send_data = encrypted;
+            send_len = out_len;
+        }
     }
-    memcpy(conn->send_buf, data, len);
-    conn->send_len = len;
+
+    free(conn->send_buf);
+    if (encrypted != nullptr) {
+        conn->send_buf = encrypted;
+    } else {
+        conn->send_buf = malloc(send_len);
+        if (conn->send_buf == nullptr) {
+            return -ENOMEM;
+        }
+        memcpy(conn->send_buf, send_data, send_len);
+    }
+    conn->send_len = send_len;
     conn->send_offset = 0;
     conn->send_active = true;
 
@@ -233,7 +262,7 @@ static int arm_send(io_server_t *srv, io_conn_t *conn,
         return -ENOSPC;
     }
 
-    io_uring_prep_send(sqe, conn->fd, conn->send_buf, len, MSG_NOSIGNAL);
+    io_uring_prep_send(sqe, conn->fd, conn->send_buf, send_len, MSG_NOSIGNAL);
     io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(conn->id, IO_OP_SEND));
 
     return 0;
@@ -241,6 +270,11 @@ static int arm_send(io_server_t *srv, io_conn_t *conn,
 
 static int arm_close(io_server_t *srv, io_conn_t *conn)
 {
+    if (conn->tls_ctx != nullptr) {
+        io_tls_conn_destroy((io_tls_conn_t *)conn->tls_ctx);
+        conn->tls_ctx = nullptr;
+    }
+
     struct io_uring *ring = io_loop_ring(srv->loop);
     struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
     if (sqe == nullptr) {
@@ -270,23 +304,18 @@ static int dispatch_request(io_server_t *srv, io_conn_t *conn, io_request_t *req
     }
 
     if (srv->router != nullptr) {
-        io_route_match_t m = io_router_dispatch(srv->router, req->method,
-                                                req->path, req->path_len);
+        io_route_match_t m = io_router_dispatch(srv->router, req->method, req->path, req->path_len);
         if (m.status == IO_MATCH_FOUND && m.handler != nullptr) {
             req->param_count = m.param_count;
-            for (uint32_t i = 0; i < m.param_count && i < IO_MAX_PATH_PARAMS;
-                 i++) {
+            for (uint32_t i = 0; i < m.param_count && i < IO_MAX_PATH_PARAMS; i++) {
                 req->params[i] = m.params[i];
             }
 
             uint32_t global_count = 0;
-            io_middleware_fn *global_mw =
-                io_router_global_middleware(srv->router, &global_count);
-            rc = io_chain_execute(&ctx, global_mw, global_count,
-                                  nullptr, 0, m.handler);
+            io_middleware_fn *global_mw = io_router_global_middleware(srv->router, &global_count);
+            rc = io_chain_execute(&ctx, global_mw, global_count, nullptr, 0, m.handler);
         } else if (m.status == IO_MATCH_METHOD_NOT_ALLOWED) {
-            io_handler_fn h405 =
-                io_router_method_not_allowed_handler(srv->router);
+            io_handler_fn h405 = io_router_method_not_allowed_handler(srv->router);
             if (h405 != nullptr) {
                 rc = h405(&ctx);
             } else {
@@ -308,8 +337,7 @@ static int dispatch_request(io_server_t *srv, io_conn_t *conn, io_request_t *req
 
     /* Serialize HTTP/1.1 response and arm send */
     uint8_t resp_buf[8192];
-    int resp_len = io_http1_serialize_response(&resp, resp_buf,
-                                               sizeof(resp_buf));
+    int resp_len = io_http1_serialize_response(&resp, resp_buf, sizeof(resp_buf));
     if (resp_len > 0) {
         if (arm_send(srv, conn, resp_buf, (size_t)resp_len) < 0) {
             io_ctx_destroy(&ctx);
@@ -453,7 +481,15 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                 io_conn_t *conn = io_conn_alloc(srv->pool);
                 if (conn != nullptr) {
                     conn->fd = client_fd;
-                    (void)io_conn_transition(conn, IO_CONN_HTTP_ACTIVE);
+
+                    if (srv->tls_ctx != nullptr) {
+                        conn->tls_ctx = io_tls_conn_create(srv->tls_ctx, client_fd);
+                        conn->tls_done = false;
+                        (void)io_conn_transition(conn, IO_CONN_TLS_HANDSHAKE);
+                    } else {
+                        (void)io_conn_transition(conn, IO_CONN_HTTP_ACTIVE);
+                    }
+
                     int recv_err = arm_recv(srv, conn);
                     if (recv_err < 0) {
                         close(conn->fd);
@@ -491,17 +527,73 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
 
             conn->recv_len += (size_t)cqe->res;
 
+            /* ---- TLS path ---- */
+            if (conn->tls_ctx != nullptr) {
+                io_tls_conn_t *tls = (io_tls_conn_t *)conn->tls_ctx;
+
+                /* Feed received ciphertext to TLS engine */
+                (void)io_tls_feed_input(tls, conn->recv_buf, conn->recv_len);
+                conn->recv_len = 0;
+
+                if (!conn->tls_done) {
+                    /* Continue TLS handshake */
+                    int hs = io_tls_handshake(tls);
+
+                    /* Flush handshake output messages */
+                    const uint8_t *out_data = nullptr;
+                    size_t out_len = 0;
+                    if (io_tls_get_output(tls, &out_data, &out_len) == 0 && out_len > 0) {
+                        (void)arm_send(srv, conn, out_data, out_len);
+                        io_tls_consume_output(tls, out_len);
+                    }
+
+                    if (hs == 0) {
+                        /* Handshake complete */
+                        conn->tls_done = true;
+                        (void)io_conn_transition(conn, IO_CONN_HTTP_ACTIVE);
+                        if (!conn->send_active) {
+                            (void)arm_recv(srv, conn);
+                        }
+                    } else if (hs == -EAGAIN) {
+                        if (!conn->send_active) {
+                            (void)arm_recv(srv, conn);
+                        }
+                    } else {
+                        (void)arm_close(srv, conn);
+                    }
+                    processed++;
+                    continue;
+                }
+
+                /* Handshake done -- decrypt application data */
+                uint8_t plain[8192];
+                int rret = io_tls_read(tls, plain, sizeof(plain));
+                if (rret > 0) {
+                    if ((size_t)rret <= conn->recv_buf_size) {
+                        memcpy(conn->recv_buf, plain, (size_t)rret);
+                        conn->recv_len = (size_t)rret;
+                    }
+                } else if (rret == -EAGAIN) {
+                    (void)arm_recv(srv, conn);
+                    processed++;
+                    continue;
+                } else {
+                    (void)arm_close(srv, conn);
+                    processed++;
+                    continue;
+                }
+            }
+
+            /* ---- HTTP parsing (plaintext in recv_buf) ---- */
             io_request_t req;
-            int consumed = io_http1_parse_request(conn->recv_buf,
-                                                  conn->recv_len, &req);
+            int consumed = io_http1_parse_request(conn->recv_buf, conn->recv_len, &req);
 
             if (consumed > 0) {
                 size_t hdr_len = (size_t)consumed;
                 size_t body_avail = conn->recv_len - hdr_len;
 
                 /* Wait for full body if Content-Length specified */
-                if (req.content_length > 0 &&
-                    body_avail < req.content_length) {
+                if (req.content_length > 0 && body_avail < req.content_length) {
                     (void)arm_recv(srv, conn);
                     processed++;
                     continue;
@@ -518,8 +610,7 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
 
                 size_t remaining = conn->recv_len - total_consumed;
                 if (remaining > 0) {
-                    memmove(conn->recv_buf,
-                            conn->recv_buf + total_consumed, remaining);
+                    memmove(conn->recv_buf, conn->recv_buf + total_consumed, remaining);
                 }
                 conn->recv_len = remaining;
             } else if (consumed == -EAGAIN) {
@@ -528,12 +619,9 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                 io_response_t bad_resp;
                 (void)io_response_init(&bad_resp);
                 bad_resp.status = 400;
-                (void)io_response_set_body(&bad_resp,
-                                           (const uint8_t *)"Bad Request",
-                                           11);
+                (void)io_response_set_body(&bad_resp, (const uint8_t *)"Bad Request", 11);
                 uint8_t resp_buf[512];
-                int resp_len = io_http1_serialize_response(
-                    &bad_resp, resp_buf, sizeof(resp_buf));
+                int resp_len = io_http1_serialize_response(&bad_resp, resp_buf, sizeof(resp_buf));
                 if (resp_len > 0) {
                     (void)arm_send(srv, conn, resp_buf, (size_t)resp_len);
                 }
@@ -560,13 +648,9 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                     struct io_uring_sqe *send_sqe = io_uring_get_sqe(ring);
                     if (send_sqe != nullptr) {
                         conn->send_active = true;
-                        io_uring_prep_send(
-                            send_sqe, conn->fd,
-                            conn->send_buf + conn->send_offset,
-                            remaining, MSG_NOSIGNAL);
-                        io_uring_sqe_set_data64(
-                            send_sqe,
-                            IO_ENCODE_USERDATA(conn->id, IO_OP_SEND));
+                        io_uring_prep_send(send_sqe, conn->fd, conn->send_buf + conn->send_offset,
+                                           remaining, MSG_NOSIGNAL);
+                        io_uring_sqe_set_data64(send_sqe, IO_ENCODE_USERDATA(conn->id, IO_OP_SEND));
                     } else {
                         /* SQE exhaustion — close connection */
                         (void)arm_close(srv, conn);
@@ -577,8 +661,10 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                     conn->send_len = 0;
                     conn->send_offset = 0;
 
-                    if (conn->keep_alive &&
-                        conn->state == IO_CONN_HTTP_ACTIVE) {
+                    if (conn->state == IO_CONN_TLS_HANDSHAKE) {
+                        /* TLS handshake send done — need more recv */
+                        (void)arm_recv(srv, conn);
+                    } else if (conn->keep_alive && conn->state == IO_CONN_HTTP_ACTIVE) {
                         (void)arm_recv(srv, conn);
                     } else {
                         (void)arm_close(srv, conn);
@@ -619,23 +705,80 @@ int io_server_shutdown(io_server_t *srv, io_shutdown_mode_t mode)
 
     srv->stopped = true;
 
-    if (mode == IO_SHUTDOWN_IMMEDIATE || mode == IO_SHUTDOWN_DRAIN) {
-        /* Cancel multishot accept if armed */
-        if (srv->accepting) {
-            struct io_uring *ring = io_loop_ring(srv->loop);
-            struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-            if (sqe != nullptr) {
-                io_uring_prep_cancel64(sqe, IO_ENCODE_USERDATA(0, IO_OP_ACCEPT), 0);
-                io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(0, IO_OP_CANCEL));
+    /* Cancel multishot accept */
+    if (srv->accepting) {
+        struct io_uring *ring = io_loop_ring(srv->loop);
+        struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+        if (sqe != nullptr) {
+            io_uring_prep_cancel64(sqe, IO_ENCODE_USERDATA(0, IO_OP_ACCEPT), 0);
+            io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(0, IO_OP_CANCEL));
+        }
+        srv->accepting = false;
+    }
+
+    /* Close listen socket */
+    if (srv->listen_fd >= 0) {
+        close(srv->listen_fd);
+        srv->listen_fd = -1;
+        srv->listening = false;
+    }
+
+    if (mode == IO_SHUTDOWN_IMMEDIATE) {
+        /* Close all active connections immediately */
+        uint32_t cap = io_conn_pool_capacity(srv->pool);
+        for (uint32_t i = 0; i < cap; i++) {
+            io_conn_t *conn = io_conn_pool_get(srv->pool, i);
+            if (conn != nullptr && conn->state != IO_CONN_FREE) {
+                if (conn->tls_ctx != nullptr) {
+                    io_tls_conn_destroy((io_tls_conn_t *)conn->tls_ctx);
+                    conn->tls_ctx = nullptr;
+                }
+                if (conn->fd >= 0) {
+                    close(conn->fd);
+                    conn->fd = -1;
+                }
+                io_conn_free(srv->pool, conn);
             }
-            srv->accepting = false;
+        }
+    } else if (mode == IO_SHUTDOWN_DRAIN) {
+        /* Transition active connections to DRAINING */
+        uint32_t cap = io_conn_pool_capacity(srv->pool);
+        for (uint32_t i = 0; i < cap; i++) {
+            io_conn_t *conn = io_conn_pool_get(srv->pool, i);
+            if (conn != nullptr && conn->state == IO_CONN_HTTP_ACTIVE) {
+                (void)io_conn_transition(conn, IO_CONN_DRAINING);
+                conn->keep_alive = false;
+            }
         }
 
-        /* Close listen socket */
-        if (srv->listen_fd >= 0) {
-            close(srv->listen_fd);
-            srv->listen_fd = -1;
-            srv->listening = false;
+        /* Run event loop until all connections close or timeout.
+         * io_server_run_once checks srv->stopped and returns early,
+         * so temporarily unset it during the drain loop. */
+        uint32_t drain_timeout_ms = srv->config.keepalive_timeout_ms;
+        uint32_t elapsed = 0;
+        constexpr uint32_t DRAIN_POLL_MS = 50;
+
+        while (io_conn_pool_active(srv->pool) > 0 && elapsed < drain_timeout_ms) {
+            srv->stopped = false;
+            (void)io_server_run_once(srv, DRAIN_POLL_MS);
+            srv->stopped = true;
+            elapsed += DRAIN_POLL_MS;
+        }
+
+        /* Force-close remaining */
+        for (uint32_t i = 0; i < cap; i++) {
+            io_conn_t *conn = io_conn_pool_get(srv->pool, i);
+            if (conn != nullptr && conn->state != IO_CONN_FREE) {
+                if (conn->tls_ctx != nullptr) {
+                    io_tls_conn_destroy((io_tls_conn_t *)conn->tls_ctx);
+                    conn->tls_ctx = nullptr;
+                }
+                if (conn->fd >= 0) {
+                    close(conn->fd);
+                    conn->fd = -1;
+                }
+                io_conn_free(srv->pool, conn);
+            }
         }
     }
 
