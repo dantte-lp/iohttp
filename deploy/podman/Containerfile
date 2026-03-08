@@ -101,10 +101,9 @@ RUN dnf install -y \
     python3-pip \
     && dnf clean all
 
-# Install ninja, flawfinder from PyPI; ccache, lcov from repos
-RUN pip3 install ninja flawfinder
-
-RUN dnf install -y ccache lcov && dnf clean all
+# Install ninja, flawfinder, gcovr from PyPI
+# Note: ccache and lcov are NOT available in OL10 repos
+RUN pip3 install ninja flawfinder gcovr
 
 # Build and install CMake from source
 RUN cd /tmp && \
