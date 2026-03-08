@@ -43,7 +43,7 @@ typedef struct {
  *         completes. Caller is responsible for destroying it after flush.
  */
 typedef io_response_t *(*io_http2_on_request_fn)(const io_request_t *req, int32_t stream_id,
-                                                  void *user_data);
+                                                 void *user_data);
 
 /* ---- Session lifecycle ---- */
 
@@ -73,7 +73,8 @@ void io_http2_session_destroy(io_http2_session_t *session);
  * @param len     Number of bytes.
  * @return Number of bytes consumed (>= 0), or negative errno on error.
  */
-[[nodiscard]] ssize_t io_http2_on_recv(io_http2_session_t *session, const uint8_t *data, size_t len);
+[[nodiscard]] ssize_t io_http2_on_recv(io_http2_session_t *session, const uint8_t *data,
+                                       size_t len);
 
 /**
  * @brief Get pending output data from the session.

@@ -64,12 +64,12 @@ typedef struct h2_resp_data h2_resp_data_t;
 
 typedef struct {
     io_request_t request;
-    h2_arena_t arena;       /* owns all string copies for header names/values/path/etc */
-    uint8_t *body_buf;      /* dynamically allocated body accumulator */
+    h2_arena_t arena;  /* owns all string copies for header names/values/path/etc */
+    uint8_t *body_buf; /* dynamically allocated body accumulator */
     size_t body_cap;
     size_t body_len;
     int32_t stream_id;
-    bool headers_done;      /* HEADERS frame fully received */
+    bool headers_done;         /* HEADERS frame fully received */
     h2_resp_data_t *resp_data; /* response data provider — freed with stream */
 } h2_stream_data_t;
 
@@ -154,8 +154,8 @@ struct h2_resp_data {
 };
 
 static nghttp2_ssize resp_data_read_cb(nghttp2_session *session, int32_t stream_id, uint8_t *buf,
-                                        size_t length, uint32_t *data_flags,
-                                        nghttp2_data_source *source, void *user_data)
+                                       size_t length, uint32_t *data_flags,
+                                       nghttp2_data_source *source, void *user_data)
 {
     (void)session;
     (void)stream_id;
@@ -179,7 +179,7 @@ static nghttp2_ssize resp_data_read_cb(nghttp2_session *session, int32_t stream_
 
 /* Helper: submit a response for a stream */
 static int submit_response(io_http2_session_t *session, int32_t stream_id,
-                            const io_response_t *resp)
+                           const io_response_t *resp)
 {
     /* Build :status pseudo-header */
     char status_str[4];
@@ -289,7 +289,7 @@ cleanup:
 /* ---- nghttp2 callbacks ---- */
 
 static int on_begin_headers_cb(nghttp2_session *session, const nghttp2_frame *frame,
-                                void *user_data)
+                               void *user_data)
 {
     (void)user_data;
 
@@ -307,8 +307,8 @@ static int on_begin_headers_cb(nghttp2_session *session, const nghttp2_frame *fr
 }
 
 static int on_header_cb(nghttp2_session *session, const nghttp2_frame *frame, const uint8_t *name,
-                         size_t namelen, const uint8_t *value, size_t valuelen, uint8_t flags,
-                         void *user_data)
+                        size_t namelen, const uint8_t *value, size_t valuelen, uint8_t flags,
+                        void *user_data)
 {
     (void)flags;
     (void)user_data;
@@ -387,7 +387,7 @@ static int on_header_cb(nghttp2_session *session, const nghttp2_frame *frame, co
 }
 
 static int on_data_chunk_cb(nghttp2_session *session, uint8_t flags, int32_t stream_id,
-                             const uint8_t *data, size_t len, void *user_data)
+                            const uint8_t *data, size_t len, void *user_data)
 {
     (void)flags;
     (void)user_data;
@@ -466,7 +466,7 @@ static int on_frame_recv_cb(nghttp2_session *session, const nghttp2_frame *frame
 }
 
 static int on_stream_close_cb(nghttp2_session *session, int32_t stream_id, uint32_t error_code,
-                               void *user_data)
+                              void *user_data)
 {
     (void)error_code;
     (void)user_data;
@@ -483,7 +483,7 @@ static int on_stream_close_cb(nghttp2_session *session, int32_t stream_id, uint3
 /* ---- Public API ---- */
 
 io_http2_session_t *io_http2_session_create(const io_http2_config_t *cfg,
-                                             io_http2_on_request_fn on_req, void *user_data)
+                                            io_http2_on_request_fn on_req, void *user_data)
 {
     io_http2_session_t *session = calloc(1, sizeof(*session));
     if (session == nullptr) {
@@ -551,8 +551,7 @@ io_http2_session_t *io_http2_session_create(const io_http2_config_t *cfg,
         {NGHTTP2_SETTINGS_MAX_FRAME_SIZE, session->config.max_frame_size},
         {NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, session->config.max_header_list_size},
     };
-    nghttp2_submit_settings(session->ng_session, NGHTTP2_FLAG_NONE, iv,
-                            sizeof(iv) / sizeof(iv[0]));
+    nghttp2_submit_settings(session->ng_session, NGHTTP2_FLAG_NONE, iv, sizeof(iv) / sizeof(iv[0]));
 
     return session;
 }

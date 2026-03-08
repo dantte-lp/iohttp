@@ -17,9 +17,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <nghttp2/nghttp2.h>
 #include <wolfssl/options.h>
 #include <wolfssl/ssl.h>
+#include <nghttp2/nghttp2.h>
 
 #include <unity.h>
 
@@ -426,8 +426,8 @@ typedef struct {
     size_t len;
 } ng_buf_t;
 
-static nghttp2_ssize ng_client_send_cb(nghttp2_session *session, const uint8_t *data,
-                                         size_t length, int flags, void *user_data)
+static nghttp2_ssize ng_client_send_cb(nghttp2_session *session, const uint8_t *data, size_t length,
+                                       int flags, void *user_data)
 {
     (void)session;
     (void)flags;
@@ -484,8 +484,7 @@ static int32_t ng_client_submit_get(nghttp2_session *ng_client, const char *path
  * 5. wolfSSL client decrypts -> nghttp2 client consumes response frames
  */
 static int h2_tls_pump(io_http2_session_t *h2_server, io_tls_conn_t *sconn,
-                        test_tls_client_t *client, nghttp2_session *ng_client,
-                        ng_buf_t *ng_out)
+                       test_tls_client_t *client, nghttp2_session *ng_client, ng_buf_t *ng_out)
 {
     /* Step 1: nghttp2 client -> TLS client -> TLS server -> HTTP/2 server */
     if (ng_out->len > 0) {
@@ -596,9 +595,8 @@ void test_http2_full_request_via_tls(void)
     h2_test_ctx_t h2ctx = {.request_count = 0, .has_response = true};
     TEST_ASSERT_EQUAL_INT(0, io_response_init(&h2ctx.response));
     const char *body = "Hello, HTTP/2!";
-    TEST_ASSERT_EQUAL_INT(0,
-        io_respond(&h2ctx.response, 200, "text/plain",
-                   (const uint8_t *)body, strlen(body)));
+    TEST_ASSERT_EQUAL_INT(0, io_respond(&h2ctx.response, 200, "text/plain", (const uint8_t *)body,
+                                        strlen(body)));
 
     io_http2_session_t *h2_server = io_http2_session_create(nullptr, h2_on_request_cb, &h2ctx);
     TEST_ASSERT_NOT_NULL(h2_server);
@@ -675,8 +673,8 @@ void test_http2_multiple_streams_via_tls(void)
     /* HTTP/2 session */
     h2_test_ctx_t h2ctx = {.request_count = 0, .has_response = true};
     TEST_ASSERT_EQUAL_INT(0, io_response_init(&h2ctx.response));
-    TEST_ASSERT_EQUAL_INT(0, io_respond(&h2ctx.response, 200, "text/plain",
-                                        (const uint8_t *)"OK", 2));
+    TEST_ASSERT_EQUAL_INT(0,
+                          io_respond(&h2ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
 
     io_http2_session_t *h2_server = io_http2_session_create(nullptr, h2_on_request_cb, &h2ctx);
     TEST_ASSERT_NOT_NULL(h2_server);

@@ -28,9 +28,10 @@ typedef struct {
     io_request_t last_req;
     int32_t last_stream_id;
     int request_count;
-    io_response_t response;   /* pre-built response for the callback to return */
+    io_response_t response; /* pre-built response for the callback to return */
     bool has_response;
-    /* Copies of strings that outlive the callback (arena-owned pointers are freed on stream close) */
+    /* Copies of strings that outlive the callback (arena-owned pointers are freed on stream close)
+     */
     char path_copy[256];
     char content_type_copy[128];
     char host_copy[128];
@@ -80,7 +81,7 @@ static io_response_t *on_request_cb(const io_request_t *req, int32_t stream_id, 
 /* ---- Client-side send callback: captures output into test_buf_t ---- */
 
 static nghttp2_ssize client_send_cb(nghttp2_session *session, const uint8_t *data, size_t length,
-                                     int flags, void *user_data)
+                                    int flags, void *user_data)
 {
     (void)session;
     (void)flags;
@@ -182,9 +183,9 @@ typedef struct {
     size_t offset;
 } client_body_t;
 
-static nghttp2_ssize client_body_read_cb(nghttp2_session *session, int32_t stream_id,
-                                          uint8_t *buf, size_t length, uint32_t *data_flags,
-                                          nghttp2_data_source *source, void *user_data)
+static nghttp2_ssize client_body_read_cb(nghttp2_session *session, int32_t stream_id, uint8_t *buf,
+                                         size_t length, uint32_t *data_flags,
+                                         nghttp2_data_source *source, void *user_data)
 {
     (void)session;
     (void)stream_id;
@@ -285,7 +286,8 @@ void test_http2_simple_get(void)
     test_ctx_t ctx = {.request_count = 0, .has_response = true};
 
     TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0, io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
+    TEST_ASSERT_EQUAL_INT(0,
+                          io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -327,7 +329,8 @@ void test_http2_post_with_body(void)
     test_ctx_t ctx = {.request_count = 0, .has_response = true};
 
     TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0, io_respond(&ctx.response, 201, "text/plain", (const uint8_t *)"Created", 7));
+    TEST_ASSERT_EQUAL_INT(0, io_respond(&ctx.response, 201, "text/plain",
+                                        (const uint8_t *)"Created", 7));
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -356,8 +359,7 @@ void test_http2_post_with_body(void)
         {(uint8_t *)":scheme", (uint8_t *)"https", 7, 5, NGHTTP2_NV_FLAG_NONE},
         {(uint8_t *)":authority", (uint8_t *)"localhost", 10, 9, NGHTTP2_NV_FLAG_NONE},
         {(uint8_t *)"content-type", (uint8_t *)"application/json", 12, 16, NGHTTP2_NV_FLAG_NONE},
-        {(uint8_t *)"content-length", (uint8_t *)cl_str, 14, strlen(cl_str),
-         NGHTTP2_NV_FLAG_NONE},
+        {(uint8_t *)"content-length", (uint8_t *)cl_str, 14, strlen(cl_str), NGHTTP2_NV_FLAG_NONE},
     };
 
     client_out.len = 0;
@@ -389,7 +391,8 @@ void test_http2_stream_multiplexing(void)
     test_ctx_t ctx = {.request_count = 0, .has_response = true};
 
     TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0, io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
+    TEST_ASSERT_EQUAL_INT(0,
+                          io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -430,7 +433,8 @@ void test_http2_flow_control(void)
     test_ctx_t ctx = {.request_count = 0, .has_response = true};
 
     TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0, io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
+    TEST_ASSERT_EQUAL_INT(0,
+                          io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -556,7 +560,8 @@ void test_http2_rst_stream(void)
     test_ctx_t ctx = {.request_count = 0, .has_response = true};
 
     TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0, io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
+    TEST_ASSERT_EQUAL_INT(0,
+                          io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
