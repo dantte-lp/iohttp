@@ -340,3 +340,24 @@ add_library(io_proxy_proto STATIC src/http/io_proxy_proto.c)
 target_include_directories(io_proxy_proto PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
 io_add_test(test_proxy_proto tests/unit/test_proxy_proto.c io_proxy_proto)
+
+# ============================================================================
+# Sprint 3: HTTP/1.1 integration tests
+# ============================================================================
+
+if(BUILD_TESTING AND TARGET unity)
+    add_executable(test_http1_server tests/integration/test_http1_server.c)
+    target_include_directories(test_http1_server PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_include_directories(test_http1_server PRIVATE ${WOLFSSL_INCLUDE_DIRS})
+    target_link_directories(test_http1_server PRIVATE ${WOLFSSL_LIBRARY_DIRS})
+    target_link_libraries(test_http1_server PRIVATE
+        unity io_http1 io_request io_response io_proxy_proto io_tls ${WOLFSSL_LIBRARIES}
+    )
+    target_compile_options(test_http1_server PRIVATE
+        -Wno-missing-prototypes -Wno-missing-declarations
+    )
+    target_compile_definitions(test_http1_server PRIVATE
+        TEST_CERTS_DIR="${CMAKE_SOURCE_DIR}/tests/certs"
+    )
+    add_test(NAME test_http1_server COMMAND test_http1_server)
+endif()
