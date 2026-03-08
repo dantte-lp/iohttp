@@ -333,6 +333,27 @@ void test_server_accept_arms_recv(void)
     io_server_destroy(srv);
 }
 
+/* ---- Run + stop test ---- */
+
+void test_server_run_null(void)
+{
+    TEST_ASSERT_EQUAL_INT(-EINVAL, io_server_run(nullptr));
+}
+
+void test_server_run_stop(void)
+{
+    io_server_config_t cfg = make_config(19020, 16);
+    io_server_t *srv = io_server_create(&cfg);
+    TEST_ASSERT_NOT_NULL(srv);
+
+    /* Stop the server first, then call run — it should return immediately */
+    io_server_stop(srv);
+    int ret = io_server_run(srv);
+    TEST_ASSERT_EQUAL_INT(0, ret);
+
+    io_server_destroy(srv);
+}
+
 /* ---- Test runner ---- */
 
 int main(void)
@@ -353,6 +374,8 @@ int main(void)
     RUN_TEST(test_server_set_on_request);
     RUN_TEST(test_server_set_tls);
     RUN_TEST(test_server_accept_arms_recv);
+    RUN_TEST(test_server_run_null);
+    RUN_TEST(test_server_run_stop);
 
     return UNITY_END();
 }

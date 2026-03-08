@@ -96,6 +96,13 @@ int io_server_listen_fd(const io_server_t *srv);
 [[nodiscard]] int io_server_run_once(io_server_t *srv, uint32_t timeout_ms);
 
 /**
+ * @brief Run the event loop until io_server_stop() is called.
+ * @param srv Server instance (must have listen_port configured).
+ * @return 0 on normal stop, negative errno on error.
+ */
+[[nodiscard]] int io_server_run(io_server_t *srv);
+
+/**
  * @brief Signal the server to stop accepting and running.
  */
 void io_server_stop(io_server_t *srv);

@@ -688,6 +688,29 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
     return processed;
 }
 
+int io_server_run(io_server_t *srv)
+{
+    if (srv == nullptr) {
+        return -EINVAL;
+    }
+
+    if (!srv->listening) {
+        int ret = io_server_listen(srv);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+
+    while (!srv->stopped) {
+        int ret = io_server_run_once(srv, 1000);
+        if (ret < 0 && ret != -ETIME && ret != -EINTR) {
+            return ret;
+        }
+    }
+
+    return 0;
+}
+
 void io_server_stop(io_server_t *srv)
 {
     if (srv == nullptr) {
