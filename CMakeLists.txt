@@ -370,3 +370,13 @@ add_library(io_radix STATIC src/router/io_radix.c)
 target_include_directories(io_radix PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
 io_add_test(test_io_radix tests/unit/test_io_radix.c io_radix io_request)
+
+# ============================================================================
+# Sprint 4: Router public API
+# ============================================================================
+
+add_library(io_router STATIC src/router/io_router.c)
+target_include_directories(io_router PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_router PUBLIC io_radix io_request)
+
+io_add_test(test_io_router tests/unit/test_io_router.c io_router io_radix io_request io_response)
