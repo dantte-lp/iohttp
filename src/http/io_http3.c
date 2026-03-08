@@ -524,7 +524,7 @@ int io_http3_submit_response(io_http3_session_t *session, int64_t stream_id,
     }
 
     /* :status */
-    nva[0].name = (uint8_t *)":status";
+    nva[0].name = (uint8_t *)":status"; //-V522
     nva[0].namelen = 7;
     nva[0].value = (uint8_t *)status_str;
     nva[0].valuelen = (size_t)slen;
