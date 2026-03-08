@@ -110,6 +110,48 @@ io_method_t io_method_parse(const char *method, size_t len);
 const char *io_method_name(io_method_t method);
 
 /**
+ * @brief Look up a path parameter value by name.
+ * @param req  Request to search.
+ * @param name Parameter name to find.
+ * @return Parameter value pointer, or nullptr if not found.
+ */
+const char *io_request_param(const io_request_t *req, const char *name);
+
+/**
+ * @brief Extract a path parameter as int64_t.
+ * @param req  Request to search.
+ * @param name Parameter name to find.
+ * @param out  Output value on success.
+ * @return 0 on success, -EINVAL on missing/invalid, -ERANGE on overflow.
+ */
+[[nodiscard]] int io_request_param_i64(const io_request_t *req, const char *name, int64_t *out);
+
+/**
+ * @brief Extract a path parameter as uint64_t.
+ * @param req  Request to search.
+ * @param name Parameter name to find.
+ * @param out  Output value on success.
+ * @return 0 on success, -EINVAL on missing/invalid, -ERANGE on overflow.
+ */
+[[nodiscard]] int io_request_param_u64(const io_request_t *req, const char *name, uint64_t *out);
+
+/**
+ * @brief Extract a path parameter as bool.
+ * @param req  Request to search.
+ * @param name Parameter name to find.
+ * @param out  Output value on success.
+ * @return 0 on success, -EINVAL on missing/unrecognized value.
+ */
+[[nodiscard]] int io_request_param_bool(const io_request_t *req, const char *name, bool *out);
+
+/**
+ * @brief Return the number of path parameters.
+ * @param req Request to query.
+ * @return Parameter count.
+ */
+uint32_t io_request_param_count(const io_request_t *req);
+
+/**
  * @brief Look up a cookie value by name from the Cookie header.
  * @param req  Request to search.
  * @param name Cookie name to find.

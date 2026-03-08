@@ -5,6 +5,8 @@
 
 #include "http/io_request.h"
 
+#include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -106,6 +108,156 @@ const char *io_method_name(io_method_t method)
         return "UNKNOWN";
     }
     return names[method];
+}
+
+const char *io_request_param(const io_request_t *req, const char *name)
+{
+    if (req == nullptr || name == nullptr) {
+        return nullptr;
+    }
+
+    size_t name_len = strnlen(name, IO_MAX_URI_SIZE);
+
+    for (uint32_t i = 0; i < req->param_count; i++) {
+        if (req->params[i].name_len != name_len) {
+            continue;
+        }
+        if (memcmp(req->params[i].name, name, name_len) == 0) {
+            return req->params[i].value;
+        }
+    }
+    return nullptr;
+}
+
+int io_request_param_i64(const io_request_t *req, const char *name, int64_t *out)
+{
+    if (req == nullptr || name == nullptr || out == nullptr) {
+        return -EINVAL;
+    }
+
+    size_t name_len = strnlen(name, IO_MAX_URI_SIZE);
+    const io_param_t *param = nullptr;
+
+    for (uint32_t i = 0; i < req->param_count; i++) {
+        if (req->params[i].name_len == name_len &&
+            memcmp(req->params[i].name, name, name_len) == 0) {
+            param = &req->params[i];
+            break;
+        }
+    }
+
+    if (param == nullptr || param->value == nullptr || param->value_len == 0) {
+        return -EINVAL;
+    }
+
+    char *endptr = nullptr;
+    errno = 0;
+    long long val = strtoll(param->value, &endptr, 10);
+
+    if (errno == ERANGE) {
+        return -ERANGE;
+    }
+    if (endptr != param->value + param->value_len) {
+        return -EINVAL;
+    }
+
+    *out = (int64_t)val;
+    return 0;
+}
+
+int io_request_param_u64(const io_request_t *req, const char *name, uint64_t *out)
+{
+    if (req == nullptr || name == nullptr || out == nullptr) {
+        return -EINVAL;
+    }
+
+    size_t name_len = strnlen(name, IO_MAX_URI_SIZE);
+    const io_param_t *param = nullptr;
+
+    for (uint32_t i = 0; i < req->param_count; i++) {
+        if (req->params[i].name_len == name_len &&
+            memcmp(req->params[i].name, name, name_len) == 0) {
+            param = &req->params[i];
+            break;
+        }
+    }
+
+    if (param == nullptr || param->value == nullptr || param->value_len == 0) {
+        return -EINVAL;
+    }
+
+    /* Reject negative values for unsigned extraction */
+    for (size_t i = 0; i < param->value_len; i++) {
+        if (param->value[i] == '-') {
+            return -EINVAL;
+        }
+        if (param->value[i] != ' ') {
+            break;
+        }
+    }
+
+    char *endptr = nullptr;
+    errno = 0;
+    unsigned long long val = strtoull(param->value, &endptr, 10);
+
+    if (errno == ERANGE) {
+        return -ERANGE;
+    }
+    if (endptr != param->value + param->value_len) {
+        return -EINVAL;
+    }
+
+    *out = (uint64_t)val;
+    return 0;
+}
+
+int io_request_param_bool(const io_request_t *req, const char *name, bool *out)
+{
+    if (req == nullptr || name == nullptr || out == nullptr) {
+        return -EINVAL;
+    }
+
+    size_t name_len = strnlen(name, IO_MAX_URI_SIZE);
+    const io_param_t *param = nullptr;
+
+    for (uint32_t i = 0; i < req->param_count; i++) {
+        if (req->params[i].name_len == name_len &&
+            memcmp(req->params[i].name, name, name_len) == 0) {
+            param = &req->params[i];
+            break;
+        }
+    }
+
+    if (param == nullptr || param->value == nullptr || param->value_len == 0) {
+        return -EINVAL;
+    }
+
+    size_t len = param->value_len;
+    const char *v = param->value;
+
+    if ((len == 4 && strncasecmp(v, "true", 4) == 0) ||
+        (len == 1 && v[0] == '1') ||
+        (len == 3 && strncasecmp(v, "yes", 3) == 0)) {
+        *out = true;
+        return 0;
+    }
+
+    if ((len == 5 && strncasecmp(v, "false", 5) == 0) ||
+        (len == 1 && v[0] == '0') ||
+        (len == 2 && strncasecmp(v, "no", 2) == 0)) {
+        *out = false;
+        return 0;
+    }
+
+    return -EINVAL;
+}
+
+uint32_t io_request_param_count(const io_request_t *req)
+{
+    if (req == nullptr) {
+        return 0;
+    }
+    return req->param_count;
 }
 
 const char *io_request_cookie(const io_request_t *req, const char *name)

@@ -380,3 +380,9 @@ target_include_directories(io_router PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(io_router PUBLIC io_radix io_request)
 
 io_add_test(test_io_router tests/unit/test_io_router.c io_router io_radix io_request io_response)
+
+# ============================================================================
+# Sprint 4: Typed parameter extraction
+# ============================================================================
+
+io_add_test(test_io_params tests/unit/test_io_params.c io_request)
