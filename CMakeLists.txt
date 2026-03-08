@@ -559,3 +559,23 @@ if(BUILD_TESTING AND TARGET unity AND NGHTTP2_INCLUDE_DIR AND NGHTTP2_LIBRARY)
     )
     add_test(NAME test_io_http2 COMMAND test_io_http2)
 endif()
+
+# Sprint 7: HTTP/2 ALPN protocol selection integration tests
+if(BUILD_TESTING AND TARGET unity AND NGHTTP2_INCLUDE_DIR AND NGHTTP2_LIBRARY)
+    add_executable(test_http2_server tests/integration/test_http2_server.c)
+    target_include_directories(test_http2_server PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_include_directories(test_http2_server PRIVATE ${WOLFSSL_INCLUDE_DIRS})
+    target_include_directories(test_http2_server PRIVATE ${NGHTTP2_INCLUDE_DIR})
+    target_link_directories(test_http2_server PRIVATE ${WOLFSSL_LIBRARY_DIRS})
+    target_link_libraries(test_http2_server PRIVATE
+        unity io_http2 io_http1 io_tls io_request io_response
+        ${WOLFSSL_LIBRARIES} ${NGHTTP2_LIBRARY}
+    )
+    target_compile_options(test_http2_server PRIVATE
+        -Wno-missing-prototypes -Wno-missing-declarations
+    )
+    target_compile_definitions(test_http2_server PRIVATE
+        TEST_CERTS_DIR="${CMAKE_SOURCE_DIR}/tests/certs"
+    )
+    add_test(NAME test_http2_server COMMAND test_http2_server)
+endif()
