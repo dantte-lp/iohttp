@@ -23,13 +23,13 @@ constexpr size_t IO_TLS_CIPHER_BUF_SIZE = 16384;
 /* ---- Configuration ---- */
 
 typedef struct {
-	const char *cert_file;
-	const char *key_file;
-	const char *ca_file;          /**< CA certificate for mTLS verification */
-	bool require_client_cert;     /**< require client certificate (mTLS) */
-	bool enable_session_tickets;  /**< enable TLS session tickets */
-	uint32_t session_cache_size;  /**< server-side session cache entries */
-	const char *alpn;             /**< comma-separated, e.g. "h2,http/1.1" */
+    const char *cert_file;
+    const char *key_file;
+    const char *ca_file;         /**< CA certificate for mTLS verification */
+    bool require_client_cert;    /**< require client certificate (mTLS) */
+    bool enable_session_tickets; /**< enable TLS session tickets */
+    uint32_t session_cache_size; /**< server-side session cache entries */
+    const char *alpn;            /**< comma-separated, e.g. "h2,http/1.1" */
 } io_tls_config_t;
 
 /* ---- Opaque context ---- */
@@ -39,15 +39,15 @@ typedef struct io_tls_ctx io_tls_ctx_t;
 /* ---- Per-connection TLS state ---- */
 
 typedef struct {
-	WOLFSSL *ssl;
-	uint8_t *cipher_in_buf;      /**< io_uring recv -> here */
-	size_t cipher_in_len;
-	size_t cipher_in_pos;
-	size_t cipher_in_cap;
-	uint8_t *cipher_out_buf;     /**< wolfSSL_write -> here -> io_uring send */
-	size_t cipher_out_len;
-	size_t cipher_out_cap;
-	bool handshake_done;
+    WOLFSSL *ssl;
+    uint8_t *cipher_in_buf; /**< io_uring recv -> here */
+    size_t cipher_in_len;
+    size_t cipher_in_pos;
+    size_t cipher_in_cap;
+    uint8_t *cipher_out_buf; /**< wolfSSL_write -> here -> io_uring send */
+    size_t cipher_out_len;
+    size_t cipher_out_cap;
+    bool handshake_done;
 } io_tls_conn_t;
 
 /* ---- Config lifecycle ---- */
