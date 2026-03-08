@@ -8,12 +8,12 @@ ARG CMAKE_VERSION=4.2.3
 ARG CLANG_VERSION=22.1.0
 ARG DOXYGEN_VERSION=1.16.1
 ARG UNITY_VERSION=2.6.1
-ARG WOLFSSL_VERSION=5.8.2
+ARG WOLFSSL_VERSION=5.8.4
 ARG LIBURING_VERSION=2.14
 ARG YYJSON_VERSION=0.12.0
-ARG NGHTTP2_VERSION=1.65.0
-ARG NGTCP2_VERSION=1.12.0
-ARG NGHTTP3_VERSION=1.9.0
+ARG NGHTTP2_VERSION=1.68.0
+ARG NGTCP2_VERSION=1.21.0
+ARG NGHTTP3_VERSION=1.15.0
 ARG WSLAY_VERSION=1.1.1
 ARG SFPARSE_VERSION=0.3.0
 
@@ -101,8 +101,10 @@ RUN dnf install -y \
     python3-pip \
     && dnf clean all
 
-# Install ninja from PyPI
-RUN pip3 install ninja
+# Install ninja, flawfinder from PyPI; ccache, lcov from repos
+RUN pip3 install ninja flawfinder
+
+RUN dnf install -y ccache lcov && dnf clean all
 
 # Build and install CMake from source
 RUN cd /tmp && \
@@ -116,7 +118,7 @@ RUN cd /tmp && \
 
 # Build and install cppcheck from source
 RUN cd /tmp && \
-    git clone --depth 1 --branch 2.18.3 https://github.com/danmar/cppcheck.git && \
+    git clone --depth 1 --branch 2.20.0 https://github.com/danmar/cppcheck.git && \
     cd cppcheck && \
     mkdir build && cd build && \
     cmake .. \
@@ -318,7 +320,7 @@ RUN cd /tmp && \
 # ═══════════════════════════════════════════════════════
 
 RUN cd /tmp && \
-    git clone --depth 1 https://github.com/rui314/mold.git && \
+    git clone --depth 1 --branch v2.40.4 https://github.com/rui314/mold.git && \
     cd mold && \
     mkdir build && cd build && \
     cmake .. \
@@ -334,6 +336,27 @@ RUN cd /tmp && \
 
 RUN pip3 install codechecker && \
     ln -sf /usr/local/bin/CodeChecker /usr/local/bin/codechecker 2>/dev/null || true
+
+# Install PVS-Studio (free for open-source, b4all license)
+RUN cd /tmp && \
+    curl -fsSL -o pvs-studio.tgz \
+        https://files.pvs-studio.ru/pvs-studio-7.41.103683.741-x86_64.tgz && \
+    tar xzf pvs-studio.tgz && \
+    cd pvs-studio-* && \
+    cp -a bin/* /usr/local/bin/ && \
+    cp -a etc/* /usr/local/etc/ 2>/dev/null || true && \
+    mkdir -p /usr/local/share/pvs-studio && \
+    cp -a share/* /usr/local/share/ 2>/dev/null || true && \
+    cd /tmp && rm -rf pvs-studio* && \
+    pvs-studio --version
+
+# Activate PVS-Studio b4all license (free for open-source)
+RUN pvs-studio-analyzer credentials "PVS-Studio Free" "SRUG-709S-2Q5H-EE03"
+
+# Configure ccache defaults
+RUN mkdir -p /root/.config/ccache && \
+    printf "max_size = 2G\ncompression = true\ncompression_level = 6\n" \
+        > /root/.config/ccache/ccache.conf
 
 # Update ldconfig cache
 RUN ldconfig
