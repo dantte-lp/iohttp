@@ -287,3 +287,22 @@ if(BUILD_TESTING AND TARGET unity)
     )
     add_test(NAME test_io_tls COMMAND test_io_tls)
 endif()
+
+# ============================================================================
+# Sprint 2.2: TLS buffer-based integration tests
+# ============================================================================
+
+if(BUILD_TESTING AND TARGET unity)
+    add_executable(test_tls_uring tests/integration/test_tls_uring.c)
+    target_include_directories(test_tls_uring PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_include_directories(test_tls_uring PRIVATE ${WOLFSSL_INCLUDE_DIRS})
+    target_link_directories(test_tls_uring PRIVATE ${WOLFSSL_LIBRARY_DIRS})
+    target_link_libraries(test_tls_uring PRIVATE unity io_tls ${WOLFSSL_LIBRARIES})
+    target_compile_options(test_tls_uring PRIVATE
+        -Wno-missing-prototypes -Wno-missing-declarations
+    )
+    target_compile_definitions(test_tls_uring PRIVATE
+        TEST_CERTS_DIR="${CMAKE_SOURCE_DIR}/tests/certs"
+    )
+    add_test(NAME test_tls_uring COMMAND test_tls_uring)
+endif()
