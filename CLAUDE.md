@@ -3,8 +3,8 @@
 ## Quick Facts
 
 - **Language**: C23 (ISO/IEC 9899:2024), `-std=c23`, `CMAKE_C_EXTENSIONS OFF`
-- **Project**: Embedded HTTP server library (drop-in replacement for Mongoose, CivetWeb, libmicrohttpd)
-- **License**: GPLv3 (wolfSSL dependency requires GPLv3)
+- **Project**: Embedded HTTP server library (HTTP/1.1 + HTTP/2 + HTTP/3, io_uring, wolfSSL)
+- **License**: GPLv3 (wolfSSL dependency — see license note below)
 - **Status**: Pre-release, first release: 0.1.0
 - **Platform**: Linux only (kernel 6.7+, glibc 2.39+)
 
@@ -23,6 +23,19 @@ cmake --build --preset clang-debug --target cppcheck  # static analysis
 cmake --build --preset clang-debug --target docs      # Doxygen
 ```
 
+## Dev Container
+
+- **Image**: `localhost/ringwall-dev:latest` (OL10-based, shared with ringwall project)
+- **MUST run with**: `--security-opt seccomp=unconfined` (io_uring_setup needs it)
+- **Compilers**: Clang 22.1.0 (primary), GCC 15.1.1 (gcc-toolset-15, validation)
+- **System GCC**: 14.3.1 (OL10 default, used by some library builds)
+- **Linker**: mold (debug), GNU ld/lld (release)
+- **Key tools**: CMake 4.2.3, Unity 2.6.1, cppcheck, Doxygen 1.16.1
+- **Shared deps**: wolfSSL 5.8.2+ (--enable-quic), liburing 2.14, yyjson 0.12.0
+- **iohttp-specific deps**: nghttp2, ngtcp2 + ngtcp2_crypto_wolfssl, nghttp3, zlib-devel, brotli-devel
+- **picohttpparser**: vendored (~800 LOC, no external dep)
+- `_GNU_SOURCE` needed for `explicit_bzero`, `signalfd`, etc. under `-std=c23`
+
 ## Compiler Strategy (dual-compiler)
 
 - **Clang 22+**: Primary dev (MSan, LibFuzzer, clang-tidy, fast builds with mold)
@@ -34,12 +47,15 @@ cmake --build --preset clang-debug --target docs      # Doxygen
 ## Key Directories
 
 ```
-src/core/           # io_uring event loop, server lifecycle, configuration
+include/iohttp/     # Public API headers (io_server.h, io_request.h, io_router.h, ...)
+src/core/           # io_uring event loop, worker threads, server lifecycle, buffers
+src/net/            # Listener, multishot accept, socket options, PROXY protocol
 src/http/           # HTTP/1.1 (picohttpparser), HTTP/2 (nghttp2), HTTP/3 (ngtcp2+nghttp3)
-src/tls/            # wolfSSL TLS 1.3, QUIC crypto, mTLS, session resumption
+src/tls/            # wolfSSL TLS 1.3, QUIC crypto, mTLS, ALPN, session resumption
+src/router/         # Radix-trie router, route groups, introspection
 src/ws/             # WebSocket (RFC 6455), SSE
 src/static/         # Static file serving, #embed, caching, SPA fallback
-src/middleware/     # Rate limiting, CORS, JWT, security headers, audit
+src/middleware/     # Rate limiting, CORS, JWT, security headers, liboas adapter
 tests/unit/         # Unity-based unit tests (test_*.c)
 tests/integration/  # Integration tests
 tests/bench/        # Performance benchmarks
@@ -52,6 +68,8 @@ deploy/podman/      # Container configurations
 ```
 
 ## Code Conventions
+
+**Full reference: `.claude/skills/iohttp-architecture/SKILL.md`** — MUST be followed for all code.
 
 - **Naming**: `io_module_verb_noun()` functions, `io_module_name_t` types, `IO_MODULE_VALUE` enums/macros
 - **Prefix**: `io_` for all public API
@@ -76,7 +94,7 @@ deploy/podman/      # Container configurations
 ## Security Requirements (MANDATORY)
 
 - Crypto comparisons: constant-time only (`ConstantCompare` from wolfCrypt)
-- Secrets: zero after use (`explicit_bzero()`)
+- Secrets: zero after use (`memset_explicit()` preferred (C23), `explicit_bzero()` fallback)
 - Error returns: `[[nodiscard]]` on all public API functions
 - Hardening: `-fstack-protector-strong -D_FORTIFY_SOURCE=3 -fPIE -pie`
 - Linker: `-Wl,-z,relro -Wl,-z,now`
@@ -84,19 +102,26 @@ deploy/podman/      # Container configurations
 - BANNED functions: `strcpy`, `sprintf`, `gets`, `strcat`, `atoi`, `system()`, `memcmp` on secrets
 - Use bounded alternatives: `snprintf`, `strnlen`, `memcpy` with size checks
 - HTTP parsing: reject oversized headers, enforce content-length limits, timeout slow clients
+- **SIGPIPE**: `signal(SIGPIPE, SIG_IGN)` at startup — wolfSSL can trigger SIGPIPE via internal writes
+- **io_uring ring hardening**: `IORING_REGISTER_RESTRICTIONS` to whitelist only needed opcodes; io_uring ops bypass seccomp BPF filters (shared memory ring, not syscalls)
+- **SEND_ZC threshold**: regular send < 2 KiB, SEND_ZC > 2 KiB, splice for static files; SEND_ZC generates 2 CQEs (completion + buffer notification)
+- **wolfSSL I/O serialization**: single I/O buffer per SSL object; reads/writes must be serialized; natural in ring-per-thread model
 
 ## Library Stack
 
 ### Core
 | Library       | Version | Role                          |
 |---------------|---------|-------------------------------|
-| wolfSSL       | 5.8+    | TLS 1.3, QUIC crypto, mTLS   |
+| wolfSSL       | 5.8.2+  | TLS 1.3, QUIC crypto, mTLS   |
 | liburing      | 2.7+    | All I/O: network, timers     |
 | picohttpparser| latest  | HTTP/1.1 parsing (SSE4.2)    |
 | nghttp2       | latest  | HTTP/2 frames + HPACK        |
 | ngtcp2        | latest  | QUIC transport               |
 | nghttp3       | latest  | HTTP/3 + QPACK               |
 | yyjson        | 0.12+   | JSON serialization (~2.4 GB/s)|
+
+### wolfSSL License Note
+wolfSSL license needs clarification before release — GitHub LICENSING says GPLv2, wolfssl.com says GPLv3, manual says GPLv2. If strictly GPLv2 (not GPLv2+), it's incompatible with iohttp's GPLv3. Resolve with wolfSSL Inc. or acquire commercial license.
 
 ## Testing Rules
 
@@ -108,10 +133,11 @@ deploy/podman/      # Container configurations
 
 ## Architecture Decisions (DO NOT CHANGE)
 
-- io_uring for ALL async I/O (multishot accept, provided buffers, zero-copy send)
+- io_uring for ALL async I/O — NOT a backend, IS the core runtime (no epoll fallback)
+- `DEFER_TASKRUN + SINGLE_ISSUER` preferred; SQPOLL optional, NOT default
 - wolfSSL Native API (not OpenSSL compat layer)
 - Pure C libraries only (no C++ dependencies)
-- Linux only — kernel 6.7+, glibc 2.39+
+- Linux only — kernel 6.7+ (CVE-2024-0582 avoidance, IOU_PBUF_RING_INC), glibc 2.39+
 - picohttpparser for HTTP/1.1 (not llhttp)
 - nghttp2 for HTTP/2, ngtcp2+nghttp3 for HTTP/3
 - yyjson for JSON serialization
@@ -125,7 +151,14 @@ deploy/podman/      # Container configurations
 - Commit style: conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`)
 - All commits must pass: clang-format, clang-tidy, unit tests
 - Never commit `.deployment-credentials` or secrets
-- **NEVER mention "Claude" or any AI assistant in commit messages, comments, or code**
+- **NEVER mention "Claude" or any AI assistant in commit messages, comments, or code** — no `Co-Authored-By` AI lines
+
+## Skills Reference
+
+See `.claude/skills/` for detailed guidance on:
+- **`iohttp-architecture/`** — Architecture, directory layout, naming, state machine, P0-P4 phasing (MANDATORY)
+- **`io-uring-patterns/`** — SQE/CQE patterns, provided buffers, multishot, linked timeouts, zero-copy, REGISTER_RESTRICTIONS (MANDATORY for src/core/, src/net/)
+- **`wolfssl-iohttp/`** — wolfSSL I/O callbacks, non-blocking TLS, ALPN/SNI, mTLS, QUIC crypto, I/O serialization (MANDATORY for src/tls/)
 
 ## MCP Documentation (context7)
 

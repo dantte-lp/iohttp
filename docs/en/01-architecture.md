@@ -6,7 +6,7 @@ iohttp is a production-grade embedded HTTP server library in C23, built as a mod
 composition of battle-tested protocol libraries on top of Linux io_uring and wolfSSL.
 
 **Design philosophy:** Own the I/O engine and glue; delegate protocol parsing to
-proven libraries. Write ~11-18K LOC of integration code, not 80K LOC of protocol
+proven libraries. Write ~14-23K LOC of integration code, not 80K LOC of protocol
 implementation.
 
 ---
@@ -35,7 +35,7 @@ implementation.
 ├─────────────────────────────────────────────────────────────┤
 │                  I/O Engine (io_uring)                       │
 │  Multishot Accept · Provided Buffers · Zero-Copy Send       │
-│  Ring-Based Timers · Signal Handling · SQPOLL Mode          │
+│  Ring-Based Timers · DEFER_TASKRUN · REGISTER_RESTRICTIONS  │
 ├─────────────────────────────────────────────────────────────┤
 │                    Linux Kernel 6.7+                         │
 └─────────────────────────────────────────────────────────────┘
@@ -47,34 +47,77 @@ implementation.
 
 ### 1. I/O Engine (`src/core/`)
 
-The foundation: a single-threaded io_uring event loop driving all I/O.
+The foundation: io_uring event loop driving all I/O. Single-reactor (dev mode) or
+multi-reactor ring-per-thread (production mode).
 
 | Component | Est. LOC | Description |
 |-----------|----------|-------------|
 | `io_loop.{h,c}` | 800-1200 | io_uring ring setup, SQE submission, CQE reaping, timer wheel |
+| `io_worker.{h,c}` | 400-600 | Worker thread, per-worker ring + connection pool |
 | `io_server.{h,c}` | 300-500 | Server lifecycle: create, configure, run, shutdown |
 | `io_buffer.{h,c}` | 200-400 | Provided buffer ring management, buffer pool |
 | `io_conn.{h,c}` | 400-600 | Connection state machine, timeout tracking |
+| `io_timeout.{h,c}` | 200-300 | Linked timeout management |
+| `io_fdreg.{h,c}` | 150-250 | Registered files/buffers management |
 
 **Key io_uring features used:**
 - `IORING_OP_ACCEPT` with `IORING_ACCEPT_MULTISHOT` — one SQE accepts all connections
 - `IOSQE_CQE_SKIP_SUCCESS` — suppress CQE on successful multishot accept (reduces CQ pressure)
 - `IORING_OP_RECV` with provided buffer rings — kernel picks buffer from pool
-- `IORING_OP_SEND_ZC` — zero-copy send for responses > 3KB (kernel 6.0+)
+- `IORING_OP_SEND_ZC` — zero-copy send for payloads > 2 KiB (kernel 6.0+)
 - `IORING_OP_LINK_TIMEOUT` — linked timeouts for keepalive/header/body deadlines
 - `IORING_OP_SPLICE` / `IORING_OP_SENDFILE` — zero-copy static file serving
 - `IORING_REGISTER_BUFFERS` — pinned memory for DMA acceleration on recv/send
 - `IORING_REGISTER_FILES` — registered file descriptors, skip fd table lookup per I/O
 - `io_uring_setup_buf_ring` — provided buffer ring for automatic recv buffer allocation
-- `IORING_SETUP_SQPOLL` — optional kernel-side SQ polling thread (requires CAP_SYS_ADMIN)
+- `IORING_SETUP_SQPOLL` — optional kernel-side SQ polling (NOT default; DEFER_TASKRUN preferred)
+- `IORING_REGISTER_RESTRICTIONS` — opcode whitelist for seccomp bypass mitigation
+- `IORING_OP_MSG_RING` — inter-ring fd/message passing for multi-reactor connection handoff
 
 **No epoll fallback.** io_uring is mandatory. Minimum kernel: 6.7+.
 
+**io_uring restriction registration:** At startup, after ring creation and buffer setup
+but before accepting connections, the server MUST call `IORING_REGISTER_RESTRICTIONS` to
+whitelist only the needed opcodes: `RECV`, `SEND`, `SEND_ZC`, `ACCEPT`, `TIMEOUT`, `CANCEL`,
+`MSG_RING`, `SPLICE`, `LINK_TIMEOUT`. This is critical because io_uring operations bypass
+seccomp BPF filters — they use the shared memory ring, not syscalls. Without opcode
+restrictions, a compromised process could issue arbitrary io_uring operations that seccomp
+cannot intercept.
+
+**CVE-2024-0582 (provided buffer ring UAF):** Kernels 6.4–6.6.4 have a use-after-free
+vulnerability in provided buffer rings. The minimum kernel 6.7 requirement avoids this CVE.
+
+**SQPOLL vs DEFER_TASKRUN:** `IORING_SETUP_SQPOLL` is optional and NOT enabled by default.
+The preferred mode for HTTP servers is `IORING_SETUP_DEFER_TASKRUN | IORING_SETUP_SINGLE_ISSUER`,
+which is better suited for bursty traffic patterns. SQPOLL burns a dedicated CPU core polling
+the submission ring and is mutually exclusive with `DEFER_TASKRUN`. Reserve SQPOLL for
+latency-critical workloads where dedicated CPU cost is acceptable.
+
+**SEND_ZC dynamic threshold heuristic:**
+- Regular async `IORING_OP_SEND` for payloads < 1–2 KiB (headers, small JSON responses)
+- `IORING_OP_SEND_ZC` for payloads > 2 KiB (large responses, file data, streaming bodies)
+- `IORING_OP_SPLICE` for static files (page cache → socket, zero user-space buffer mapping)
+- Use `IORING_SEND_ZC_REPORT_USAGE` flag to detect when kernel falls back to copy (e.g.,
+  loopback interface), allowing runtime adaptation of the threshold
+- Note: `SEND_ZC` generates 2 CQEs per operation — one for completion, one for zero-copy
+  notification. The CQE reaping loop must handle both.
+
+**Multi-reactor architecture (production):**
+- One io_uring ring per worker thread
+- Each worker owns its connection pool and buffer locality
+- Listener strategy: SO_REUSEPORT (per-worker) or shared accept + handoff
+- Connection does NOT migrate between rings in normal operation
+- Strict ownership: each connection has exactly one owner thread
+
+**CQE dispatch:** typed user_data packing `(conn_id << 8) | op_type` for fast O(1)
+discrimination of accept/recv/send/timeout/file/tls operations. No heap allocations.
+
 **Connection state machine:**
 ```
-ACCEPTING → PROXY_HEADER → TLS_HANDSHAKE → HTTP_ACTIVE → CLOSING → CLOSED
-                              ↓
-                         WEBSOCKET_ACTIVE
+ACCEPTING → PROXY_HEADER → TLS_HANDSHAKE → PROTOCOL_NEGOTIATION
+  → HTTP_ACTIVE → DRAINING → CLOSING → CLOSED
+       ↓               ↓
+  WEBSOCKET_ACTIVE  SSE_ACTIVE
 ```
 
 ### 2. TLS Layer (`src/tls/`)
@@ -96,6 +139,18 @@ wolfSSL native API integration (NOT OpenSSL compatibility layer).
 // io_uring is non-blocking — must handle WANT_READ/WANT_WRITE manually
 ```
 
+**I/O buffer serialization:** wolfSSL has a single I/O buffer per `WOLFSSL` object. This
+means `wolfSSL_read()` and `wolfSSL_write()` on the same `WOLFSSL` object MUST be serialized
+— concurrent calls corrupt internal state. In the ring-per-thread architecture with strict
+connection ownership, this is naturally satisfied (one thread owns each connection, so reads
+and writes are sequential within the event loop).
+
+**SIGPIPE handling:** `signal(SIGPIPE, SIG_IGN)` is REQUIRED at startup. While io_uring
+returns errors on write to a closed socket, wolfSSL may trigger `SIGPIPE` through its
+internal write calls (the custom I/O callbacks ultimately invoke kernel writes). Without
+this, the server process can be killed by an unhandled `SIGPIPE` when a client disconnects
+mid-response.
+
 **Supported features:**
 - TLS 1.3 (primary), TLS 1.2 (optional compat)
 - mTLS with CRL checking
@@ -106,6 +161,13 @@ wolfSSL native API integration (NOT OpenSSL compatibility layer).
 - OCSP stapling (optional)
 - QUIC crypto for HTTP/3 via ngtcp2_crypto_wolfssl
 
+**wolfSSL license note:** wolfSSL's license situation requires clarification before release.
+The GitHub `LICENSING` file states GPLv2, wolfssl.com/license states GPLv3, and the wolfSSL
+manual states GPLv2. If wolfSSL is strictly GPLv2 (not GPLv2-or-later), it is incompatible
+with GPLv3 code — the two licenses cannot be combined in a single work. Recommendation:
+clarify the exact license terms with wolfSSL Inc. or acquire a commercial license before
+any public release of iohttp.
+
 ### 3. HTTP Protocol Layer (`src/http/`)
 
 Three protocol implementations sharing a unified request/response abstraction.
@@ -114,7 +176,7 @@ Three protocol implementations sharing a unified request/response abstraction.
 |-----------|----------|-------------|
 | `io_http1.{h,c}` | 400-700 | picohttpparser wrapper, request object, chunked TE |
 | `io_http2.{h,c}` | 1500-2500 | nghttp2 session, stream mux, HPACK, flow control |
-| `io_http3.{h,c}` | 3000-5000 | ngtcp2 QUIC transport + nghttp3 HTTP/3 + QPACK |
+| `io_http3.{h,c}` | 3000-5000 | ngtcp2 QUIC transport + nghttp3 HTTP/3 + QPACK + CID demux |
 | `io_request.{h,c}` | 300-500 | Unified request abstraction across protocols |
 | `io_response.{h,c}` | 300-500 | Response builder, header serialization |
 | `io_proxy_proto.{h,c}` | 300-500 | PROXY protocol v1/v2 decoder |
@@ -136,20 +198,58 @@ Router → Middleware → Handler
 io_response_t → protocol-specific framing → wolfSSL encrypt → io_uring send
 ```
 
-### 4. Router (`src/core/`)
+**HTTP/2 graceful shutdown (two-phase GOAWAY):**
+1. Send GOAWAY with `last_stream_id = 2^31-1` (signal: no new streams)
+2. Wait at least one RTT for in-flight requests to arrive
+3. Send final GOAWAY with actual last processed stream ID
+4. Wait until `nghttp2_session_want_read() == 0 && nghttp2_session_want_write() == 0`
+5. Close connection via io_uring
+
+**HTTP/3 / QUIC specifics:**
+- **CID demultiplexing:** Multishot UDP recv delivers mixed packets from all clients.
+  Hash table maps Connection ID → `ngtcp2_conn` for O(1) packet routing.
+- **UDP GSO/GRO:** GSO batches multiple QUIC packets into one sendmsg via `UDP_SEGMENT`
+  cmsg. GRO coalesces received packets. ngtcp2 supports GSO natively via
+  `ngtcp2_conn_write_aggregate_pkt()`.
+- **Congestion control:** Configurable — CUBIC (default), NewReno, BBRv2. BBRv2 gives
+  ~21% better p99 latency on lossy/mobile networks.
+- **Connection migration:** ngtcp2 fully supports QUIC path migration. Server handles
+  PATH_CHALLENGE/PATH_RESPONSE and updates CID-to-connection mapping.
+- **`SO_REUSEPORT`** for multiple worker threads receiving on the same UDP port.
+- **Graceful shutdown:** `nghttp3_conn_shutdown()` → reject new streams → poll
+  `nghttp3_conn_is_drained()` → close QUIC connection when all streams complete.
+
+### 4. Router (`src/router/`)
 
 | Component | Est. LOC | Description |
 |-----------|----------|-------------|
-| `io_router.{h,c}` | 500-800 | Longest-prefix trie, path params, route groups |
-| `io_middleware.{h,c}` | 300-500 | Middleware chain, next() pattern |
+| `io_radix.{h,c}` | 400-600 | Radix trie (compressed prefix tree), internal |
+| `io_router.{h,c}` | 500-700 | Per-method trees, auto-405/HEAD, path correction |
+| `io_route_group.{h,c}` | 200-400 | Nested groups with prefix composition |
+| `io_route_inspect.{h,c}` | 100-200 | Route walking, introspection, liboas binding |
+| `io_middleware.{h,c}` | 300-500 | Middleware chain, error handler, next() pattern |
+
+**Design heritage:** Radix trie + per-method trees (httprouter), static > param > wildcard
+priority (httprouter/echo/bunrouter), handler-returns-error (bunrouter/echo), route groups
+(Express.Router), auto-405/HEAD (httprouter/FastRoute), conflict detection (matchit/Axum),
+route introspection (gorilla/mux), metadata attachment for OpenAPI (FastAPI).
 
 **Routing features:**
-- Longest-prefix match (trie)
-- Path parameters: `/api/users/:id/config`
-- Wildcard routes: `/static/*`
-- Route groups with per-group middleware: `/api/v1/`
-- Per-route auth and permission bitmask
-- Method-based dispatch
+- **Radix trie** with compressed prefix sharing, separate tree per HTTP method
+- **Deterministic priority** (order-independent): static > `:param` > `*wildcard`
+- **Method-specific registration**: `io_router_get()`, `io_router_post()`, etc.
+- **Path parameters**: `/api/users/:id/config` — typed extraction (string, i64, u64, bool)
+- **Wildcard routes**: `/static/*path` — captures remaining path
+- **Nested route groups**: prefix composition + per-group middleware inheritance
+- **Auto-405 Method Not Allowed**: path matches another method → 405 + `Allow` header
+- **Auto-HEAD**: HEAD falls back to GET handler if no explicit HEAD route
+- **Trailing slash redirect**: `/users/` ↔ `/users` → 301
+- **Path auto-correction**: `//foo/../bar` → `/bar` → 301
+- **Conflict detection**: `/:id` + `/:name` on same level → error at registration
+- **Route introspection**: `io_router_walk()` for docs generation, liboas binding
+- **Route metadata**: extensible `io_route_opts_t` with `oas_operation_t*` for liboas
+- **Custom handlers**: configurable 404 and 405 handlers
+- **Centralized error handling**: handler returns int (0 or -errno) → error handler
 
 ### 5. Middleware (`src/middleware/`)
 
@@ -160,7 +260,25 @@ io_response_t → protocol-specific framing → wolfSSL encrypt → io_uring sen
 | `io_auth.{h,c}` | 200-400 | Basic, Bearer, JWT hooks |
 | `io_security.{h,c}` | 150-300 | CSP, HSTS, X-Frame-Options, nosniff |
 | `io_logging.{h,c}` | 300-500 | Structured JSON access/error logs |
-| `io_metrics.{h,c}` | 200-400 | Prometheus text exposition |
+| `io_metrics.{h,c}` | 300-500 | Lock-free thread-local Prometheus metrics |
+
+**Metrics architecture (lock-free):** Each worker thread maintains a thread-local metrics
+registry aligned to 64-byte cache line boundaries. No atomic operations in the request
+hot path — counters are incremented locally. On `/metrics` scrape, a dedicated handler
+iterates all thread-local blocks, aggregates values without locks, and serializes to
+Prometheus text exposition format. This eliminates cacheline bouncing that degrades
+performance by 30-40% with shared atomic counters.
+
+**Standard metrics:**
+- `io_http_requests_total{method,status}` — counter
+- `io_http_request_duration_seconds` — histogram
+- `io_http_connections_active{protocol}` — gauge (h1/h2/h3)
+- `io_tls_handshake_duration_seconds` — histogram
+- `io_uring_sqe_submitted_total` — counter
+- `io_bufpool_available` — gauge
+
+**Health endpoints:** `/health` (liveness, always 200), `/ready` (readiness: TLS certs,
+buffer pools, connection limits).
 
 ### 6. Static Files (`src/static/`)
 
@@ -177,6 +295,30 @@ io_response_t → protocol-specific framing → wolfSSL encrypt → io_uring sen
 |-----------|----------|-------------|
 | `io_websocket.{h,c}` | 800-1500 | RFC 6455, frame parse, mask, ping/pong, fragmentation |
 | `io_sse.{h,c}` | 150-250 | SSE format, heartbeat, Last-Event-ID |
+
+### 8. liboas Integration (`src/middleware/io_oas.c`)
+
+liboas is a **separate project** — an OpenAPI 3.2.0 library for C23. iohttp provides
+integration points via an adapter middleware, NOT a built-in OpenAPI engine.
+
+| Component | Est. LOC | Description |
+|-----------|----------|-------------|
+| `io_oas.{h,c}` | 200-400 | liboas adapter middleware, mount/publish helpers |
+
+**Integration architecture (one route lookup):**
+1. At startup, liboas compiles OpenAPI document → `oas_compiled_api_t`
+2. Each iohttp route stores `oas_operation_t*` via `io_route_opts_t.oas_operation`
+3. At runtime, iohttp router finds route (one lookup) → middleware receives already-matched operation
+4. liboas middleware validates request/response against operation schema
+
+**What iohttp provides to liboas:**
+- `io_request_t` → `oas_runtime_request_t` mapping
+- `io_response_t` → `oas_runtime_response_t` mapping
+- `io_tls_peer_info_t` → `oas_security_ctx_t` (TLS/mTLS metadata)
+- `io_conn_info_t` → real client IP (after PROXY protocol decode)
+- Pre-handler request validation hook
+- Post-handler response validation hook
+- `/openapi.json` publish helper
 
 ---
 
@@ -222,7 +364,9 @@ io_response_t → protocol-specific framing → wolfSSL encrypt → io_uring sen
 ## Memory Model
 
 - **Fixed-size connection pool** — compile-time configurable (default 256)
-- **Provided buffer rings** — kernel-managed buffer pool for recv (no alloc in hot path)
+- **Provided buffer rings** — kernel-managed buffer pool for recv (no alloc in hot path).
+  On `-ENOBUFS` (ring exhausted), multishot recv is re-armed after buffer replenishment.
+  Double-buffering: one group active in kernel, second being replenished by application.
 - **Registered buffers** — `IORING_REGISTER_BUFFERS` pins memory for DMA, avoids page table walks
 - **Registered files** — `IORING_REGISTER_FILES` pre-registers fds, skips fd table lookup
 - **Arena allocators** — per-request lifetime, freed after response sent
@@ -261,6 +405,25 @@ io_server_config_t cfg = {
 
 ## Security Model
 
+### Security Hardening
+
+**HTTP/2 Rapid Reset protection (CVE-2023-44487):** Enforce `SETTINGS_MAX_CONCURRENT_STREAMS`
+via nghttp2 session settings. Without stream limits, the server is vulnerable to the Rapid
+Reset attack (client opens and immediately resets streams at high rate), which took down
+production servers across the industry in October 2023. Configure a reasonable limit (e.g.,
+100–256 concurrent streams) and track RST_STREAM rate — if a client sends RSTs faster than
+a threshold (e.g., 100 RSTs/second), terminate the connection.
+
+**Slowloris / Slow POST defense:**
+- Header read timeout: 5–15 seconds via `io_uring_prep_link_timeout()` linked to the
+  initial recv after accept. If headers are not fully received within the deadline, close
+  the connection.
+- Minimum transfer rate enforcement: for request bodies, enforce a minimum bytes/second
+  rate (e.g., 1 KiB/s). Clients sending data slower than this are likely attack probes.
+- Per-IP connection limits: track active connections per source IP, reject new connections
+  beyond the limit (e.g., 64 per IP). Combined with the header timeout, this prevents
+  resource exhaustion from slow-connection attacks.
+
 | Layer | Protection |
 |-------|-----------|
 | Network | Connection limits, accept rate limiting |
@@ -279,14 +442,15 @@ io_server_config_t cfg = {
 
 | Category | Own Code | External Libraries |
 |----------|----------|--------------------|
-| I/O Engine | 1700-2700 | liburing ~3K |
+| I/O Engine + Workers | 2450-3850 | liburing ~3K |
 | TLS Integration | 700-1100 | wolfSSL (large) |
 | HTTP/1.1 | 400-700 | picohttpparser ~800 |
 | HTTP/2 | 1500-2500 | nghttp2 ~18K |
 | HTTP/3 + QUIC | 3000-5000 | ngtcp2 ~28K + nghttp3 ~12K |
-| Router + Middleware | 1750-3100 | — |
+| Router + Middleware | 2500-4200 | — |
+| liboas Adapter | 200-400 | liboas (separate project) |
 | Static Files + SPA | 1250-2200 | zlib, brotli |
 | WebSocket + SSE | 950-1750 | — |
-| Config + Logging | 700-1200 | yyjson ~8K |
-| **Total own code** | **~12K-20K** | |
-| **Total with deps** | | **~70K** |
+| Config + Logging + Metrics | 1000-1700 | yyjson ~8K |
+| **Total own code** | **~14K-24K** | |
+| **Total with deps** | | **~70K+** |

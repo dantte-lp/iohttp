@@ -4,9 +4,11 @@
 
 **Goal:** Build a production-grade embedded HTTP server library in C23 with io_uring, wolfSSL, HTTP/1.1+2+3.
 
-**Architecture:** Modular composition — io_uring event loop + wolfSSL TLS + picohttpparser (HTTP/1.1) + nghttp2 (HTTP/2) + ngtcp2+nghttp3 (HTTP/3). Single-threaded, callback-based, zero-copy where possible.
+**Architecture:** io_uring as core runtime (not backend). Multi-reactor ring-per-thread (production) / single-reactor (dev). Modular composition: wolfSSL TLS + picohttpparser (HTTP/1.1) + nghttp2 (HTTP/2) + ngtcp2+nghttp3 (HTTP/3). Radix-trie router with per-method trees. Zero-copy where possible. P0→P4 phasing.
 
 **Tech Stack:** C23, liburing 2.7+, wolfSSL 5.8+, picohttpparser, nghttp2, ngtcp2, nghttp3, yyjson, Unity tests, Linux kernel 6.7+.
+
+**wolfSSL License Note:** wolfSSL's license requires clarification before release — GitHub LICENSING says GPLv2, wolfssl.com says GPLv3, manual says GPLv2. If strictly GPLv2 (not GPLv2+), it's incompatible with iohttp's GPLv3. Resolve with wolfSSL Inc. or acquire commercial license.
 
 **Build/test:**
 ```bash
@@ -54,13 +56,32 @@ typedef struct {
 ```
 
 **io_uring features per operation:**
-- Multishot accept: `IORING_OP_ACCEPT` + `IORING_ACCEPT_MULTISHOT` + `IOSQE_CQE_SKIP_SUCCESS`
+- Multishot accept: `IORING_OP_ACCEPT` + `IORING_ACCEPT_MULTISHOT` (NO `IOSQE_CQE_SKIP_SUCCESS` — accept CQE carries the fd; skipping it loses the connection)
 - Recv: `IORING_OP_RECV` with provided buffer ring (`io_uring_setup_buf_ring`)
-- Send: `IORING_OP_SEND_ZC` for zero-copy (payloads > 3KB), regular `IORING_OP_SEND` otherwise
+- Send: `IORING_OP_SEND_ZC` for zero-copy (payloads > 2 KiB), regular `IORING_OP_SEND` otherwise
 - Timers: `IORING_OP_LINK_TIMEOUT` for per-operation deadlines (keepalive, header, body)
 - Files: `IORING_OP_SPLICE` for zero-copy static file serving
 - Registered buffers: `IORING_REGISTER_BUFFERS` — pinned memory, avoids page table walks on DMA
 - Registered files: `IORING_REGISTER_FILES` — pre-registered fds, skips fd table lookup per I/O
+
+**Ring hardening (IORING_REGISTER_RESTRICTIONS):** At startup, after ring creation and buffer registration
+but before accepting connections, call `IORING_REGISTER_RESTRICTIONS` to whitelist only needed opcodes
+(RECV, SEND, SEND_ZC, ACCEPT, TIMEOUT, CANCEL, MSG_RING, SPLICE, LINK_TIMEOUT). This closes the
+io_uring seccomp bypass vulnerability — io_uring operations bypass seccomp BPF filters since they use
+shared memory ring, not direct syscalls. Without restrictions, a compromised parser can issue arbitrary
+kernel operations (OPENAT, CONNECT) through the existing ring fd.
+
+**SEND_ZC threshold heuristic:** Regular async `send` for payloads < 2 KiB (headers, small JSON).
+`SEND_ZC` for payloads > 2 KiB (large responses, streaming). `splice` for static files.
+SEND_ZC generates 2 CQEs per operation (completion + buffer notification); use
+`IORING_SEND_ZC_REPORT_USAGE` to detect kernel fallback to copy on loopback.
+
+**SQPOLL:** Optional, NOT default. `DEFER_TASKRUN + SINGLE_ISSUER` preferred for HTTP servers
+(bursty traffic). SQPOLL burns a CPU core and is mutually exclusive with DEFER_TASKRUN.
+
+**Kernel 6.7 justification:** Required for `IOU_PBUF_RING_INC` (incremental buffer consumption),
+`IORING_SETUP_SINGLE_ISSUER` + `IORING_SETUP_DEFER_TASKRUN` (both 6.0+), and to avoid
+CVE-2024-0582 (use-after-free in provided buffer rings, kernels 6.4–6.6.4).
 
 **No epoll fallback.** io_uring is mandatory. Minimum kernel: 6.7+.
 
@@ -78,6 +99,8 @@ void test_loop_provided_buffer_ring(void);       // buffer ring setup
 void test_loop_register_buffers(void);           // IORING_REGISTER_BUFFERS + fixed read/write
 void test_loop_register_files(void);             // IORING_REGISTER_FILES + fixed fd I/O
 void test_loop_config_validate(void);            // invalid config rejected
+void test_loop_register_restrictions(void);      // IORING_REGISTER_RESTRICTIONS whitelist
+void test_loop_restricted_op_rejected(void);     // non-whitelisted op → -EACCES
 ```
 
 **CMake:**
@@ -181,11 +204,27 @@ typedef struct {
 void io_server_destroy(io_server_t *srv);
 [[nodiscard]] int io_server_run(io_server_t *srv);    /* blocks */
 void io_server_stop(io_server_t *srv);
+
+/* Graceful shutdown — drain active connections before stopping */
+typedef enum : uint8_t {
+    IO_SHUTDOWN_IMMEDIATE,  /* close all connections now */
+    IO_SHUTDOWN_DRAIN,      /* stop accepting, drain active, then stop */
+} io_shutdown_mode_t;
+
+[[nodiscard]] int io_server_shutdown(io_server_t *srv, io_shutdown_mode_t mode,
+                                      uint32_t drain_timeout_ms);
 ```
 
-Server creates: listen socket → bind → listen → io_loop with multishot accept.
+Server creates: `signal(SIGPIPE, SIG_IGN)` → listen socket → bind → listen → io_loop with multishot accept.
+**SIGPIPE must be ignored at startup** — io_uring returns errors on write to closed socket, but
+wolfSSL may trigger SIGPIPE through internal write calls. Without SIG_IGN, server can crash.
+Shutdown DRAIN: cancel multishot accept → transition all conns to DRAINING →
+wait for in-flight responses → close after drain_timeout_ms.
 
-**Tests (7):**
+**Accept backpressure:** when connection pool exhausted, stop re-arming multishot accept.
+When connections free up, re-arm. Log warning on backpressure activation.
+
+**Tests (10):**
 ```c
 void test_server_config_defaults(void);
 void test_server_config_validate_valid(void);
@@ -194,6 +233,9 @@ void test_server_config_validate_zero_conns(void);    // -EINVAL
 void test_server_create_destroy(void);
 void test_server_listen_socket(void);                 // bind succeeds
 void test_server_accept_connection(void);             // socketpair test
+void test_server_shutdown_immediate(void);            // stop immediately
+void test_server_shutdown_drain(void);                // drain then stop
+void test_server_accept_backpressure(void);           // pool full → no accept
 ```
 
 ---
@@ -293,6 +335,8 @@ Custom I/O callbacks integrate with io_uring:
 - **CRITICAL:** `wolfSSL_CTX_set_mode(ctx, SSL_MODE_ENABLE_PARTIAL_WRITE)` — io_uring is non-blocking, wolfSSL must handle partial writes
 - Manual `WANT_READ`/`WANT_WRITE` handling — re-arm io_uring recv/send on these returns
 - Use registered buffers for TLS record I/O (16KB input + 16KB output per connection)
+- **wolfSSL I/O serialization:** wolfSSL has a single I/O buffer per SSL object — `wolfSSL_read()` and `wolfSSL_write()` on the same WOLFSSL object MUST be serialized. In ring-per-thread with strict connection ownership, this is naturally satisfied (one thread per connection).
+- **TLS certificate hot reload:** Support atomic pointer swap with reference counting — create new `WOLFSSL_CTX`, load certs via `wolfSSL_CTX_use_certificate_buffer()`, atomically swap global pointer. Existing connections continue using old CTX and release it on close.
 
 **Tests (10):**
 ```c
@@ -306,6 +350,7 @@ void test_tls_alpn_h2(void);                         // verify ALPN negotiation
 void test_tls_alpn_http11(void);
 void test_tls_mtls_valid_client(void);               // client cert accepted
 void test_tls_mtls_no_client_cert(void);             // rejected when required
+void test_tls_ctx_hot_reload(void);                  // swap CTX, old conns work, new conns use new CTX
 ```
 
 ---
@@ -377,6 +422,9 @@ typedef struct {
     bool keep_alive;
     const char *content_type;
     size_t content_length;
+    const char *host;             /* Host header (required for HTTP/1.1) */
+    /* Connection info (real client IP after PROXY protocol) */
+    io_conn_info_t *conn_info;
 } io_request_t;
 
 typedef struct {
@@ -402,7 +450,23 @@ typedef struct {
                                           const char *name, const char *value);
 ```
 
-**Tests (12):**
+**Request helpers:**
+```c
+/* Cookie parsing from Cookie header */
+const char *io_request_cookie(const io_request_t *req, const char *name);
+
+/* Query parameter extraction (from parsed query string) */
+const char *io_request_query(const io_request_t *req, const char *name);
+
+/* Content negotiation — Accept header parsing */
+const char *io_request_accepts(const io_request_t *req, const char **types, uint32_t count);
+
+/* Form body parsing (application/x-www-form-urlencoded) */
+[[nodiscard]] int io_request_form_value(const io_request_t *req,
+                                         const char *name, const char **value);
+```
+
+**Tests (18):**
 ```c
 void test_request_init(void);
 void test_request_method_parse(void);
@@ -411,10 +475,16 @@ void test_request_header_find_missing(void);
 void test_request_content_length(void);
 void test_request_keep_alive_11(void);          // HTTP/1.1 default keep-alive
 void test_request_keep_alive_10(void);          // HTTP/1.0 default close
+void test_request_cookie_single(void);          // Cookie: session=abc → "abc"
+void test_request_cookie_multiple(void);        // Cookie: a=1; b=2 → "2"
+void test_request_cookie_missing(void);         // no such cookie → nullptr
+void test_request_query_param(void);            // ?page=2&sort=name → "2"
+void test_request_accepts_json(void);           // Accept: application/json
+void test_request_accepts_wildcard(void);       // Accept: */*
+void test_request_form_urlencoded(void);        // key=value&key2=value2
 void test_response_init(void);
 void test_response_set_header(void);
 void test_response_json(void);
-void test_response_serialize_headers(void);
 void test_response_status_text(void);           // 200→"OK", 404→"Not Found"
 ```
 
@@ -445,7 +515,15 @@ Wrap picohttpparser's stateless parsing with buffered I/O:
 
 Return values: >0 = bytes consumed, -EAGAIN = need more data, <0 = error.
 
-**Tests (12):**
+**Request smuggling protection (CRITICAL):**
+- Reject duplicate Content-Length headers
+- Reject requests with both Content-Length and Transfer-Encoding
+- Reject obs-fold in headers (deprecated line folding)
+- Reject Content-Length with non-digit characters
+- Reject chunked TE not as last encoding
+- Require Host header for HTTP/1.1
+
+**Tests (18):**
 ```c
 void test_http1_parse_get(void);                // GET /path HTTP/1.1
 void test_http1_parse_post_body(void);          // POST with Content-Length body
@@ -459,6 +537,13 @@ void test_http1_chunked_decode_incomplete(void);
 void test_http1_serialize_200(void);            // serialize 200 OK response
 void test_http1_serialize_headers(void);        // custom headers in output
 void test_http1_keepalive_detection(void);      // Connection: keep-alive/close
+// Request smuggling protection
+void test_http1_reject_duplicate_content_length(void);  // 400
+void test_http1_reject_cl_and_te(void);                 // CL + TE → 400
+void test_http1_reject_obs_fold(void);                  // obs-fold → 400
+void test_http1_reject_bad_cl_value(void);              // "12abc" → 400
+void test_http1_require_host_11(void);                  // HTTP/1.1 without Host → 400
+void test_http1_expect_100_continue(void);              // Expect: 100-continue
 ```
 
 ---
@@ -488,6 +573,12 @@ typedef struct {
 
 PPv1: text format `PROXY TCP4 src dst sport dport\r\n`
 PPv2: binary format with 12-byte signature, supports TLV extensions.
+
+**SECURITY: PROXY protocol MUST be strictly config-based + allowlist.**
+Never auto-detect PROXY headers — the spec explicitly warns that auto-detection
+lets any client spoof source IP. The listener must have `proxy_protocol_enabled`
+flag (default: false) and `trusted_proxy_addrs[]` allowlist. Only accept PROXY
+headers from connections originating from addresses in the allowlist.
 
 **Tests (10):**
 ```c
@@ -523,90 +614,388 @@ void test_http1_proxy_then_request(void);        // PROXY header + GET
 
 ---
 
-## Sprint 4: Router & Middleware (2-3 weeks)
+## Sprint 4: Router & Middleware (3-4 weeks)
 
-**Goal:** Trie-based router with path parameters, middleware chain, built-in middleware.
+**Goal:** Production-grade radix-trie router with per-method trees, typed params, route groups,
+auto-405/HEAD, middleware chain, and built-in middleware.
 
-### Task 4.1: Router (Trie-Based)
+**Design heritage:** Radix trie + per-method trees (httprouter, 2013), deterministic static > param > wildcard
+priority (httprouter/echo), handler-returns-error (bunrouter/echo), route groups with prefix composition
+(Express.Router), auto-405 + auto-HEAD (httprouter/FastRoute), trailing slash redirect (httprouter),
+path auto-correction (httprouter), conflict detection at registration (matchit/Axum), route introspection
+(gorilla/mux), route metadata attachment for OpenAPI (FastAPI-inspired).
+
+### Task 4.1: Radix Trie Core
 
 **Files:**
-- Create: `src/core/io_router.h`
-- Create: `src/core/io_router.c`
+- Create: `src/router/io_radix.h`
+- Create: `src/router/io_radix.c`
+- Create: `tests/unit/test_io_radix.c`
+- Modify: `CMakeLists.txt`
+
+**Implementation:**
+
+Internal radix trie (compressed prefix tree) — NOT exposed in public API.
+Separate tree per HTTP method (GET tree, POST tree, etc.) for O(1) method dispatch.
+
+```c
+/* Internal — src/router/io_radix.h */
+typedef enum : uint8_t {
+    IO_NODE_STATIC,    /* /users/list — highest priority */
+    IO_NODE_PARAM,     /* /:id        — medium priority  */
+    IO_NODE_WILDCARD,  /* /*path      — lowest priority  */
+} io_node_type_t;
+
+typedef struct io_radix_node {
+    char                    *prefix;        /* compressed edge label */
+    io_node_type_t           type;
+    char                    *param_name;    /* for PARAM/WILDCARD nodes */
+    void                    *handler;       /* opaque, set by router */
+    void                    *metadata;      /* route options, oas_operation_t* */
+    struct io_radix_node   **children;      /* sorted by: STATIC > PARAM > WILDCARD */
+    uint32_t                 child_count;
+    uint32_t                 priority;      /* sum of handles in subtree (httprouter optimization) */
+} io_radix_node_t;
+
+typedef struct {
+    io_radix_node_t *root;
+} io_radix_tree_t;
+
+[[nodiscard]] io_radix_tree_t *io_radix_create(void);
+void io_radix_destroy(io_radix_tree_t *tree);
+[[nodiscard]] int io_radix_insert(io_radix_tree_t *tree, const char *pattern,
+                                   void *handler, void *metadata);
+[[nodiscard]] int io_radix_lookup(const io_radix_tree_t *tree, const char *path,
+                                   size_t path_len, io_radix_match_t *match);
+```
+
+Node priority ordering (httprouter pattern): children sorted by number of handles in subtree,
+so most-populated branches are tried first → O(k) average where k = path segments.
+
+**Conflict detection (matchit pattern):** `io_radix_insert()` returns `-EEXIST` if pattern
+conflicts with existing route (e.g., `/:id` and `/:name` on same tree level).
+
+**Tests (12):**
+```c
+void test_radix_create_destroy(void);
+void test_radix_insert_static(void);             // /users/list
+void test_radix_insert_param(void);              // /users/:id
+void test_radix_insert_wildcard(void);           // /static/*path
+void test_radix_lookup_static(void);             // exact match
+void test_radix_lookup_param_extract(void);      // /users/42 → id="42"
+void test_radix_lookup_wildcard_extract(void);   // /static/js/app.js → path="js/app.js"
+void test_radix_priority_static_over_param(void);  // /users/list wins over /users/:id
+void test_radix_priority_param_over_wildcard(void); // /files/:name wins over /files/*path
+void test_radix_conflict_detection(void);        // /:id + /:name → -EEXIST
+void test_radix_compressed_prefix(void);         // /api/users + /api/posts share /api/ edge
+void test_radix_no_match(void);                  // unknown path → nullptr
+```
+
+---
+
+### Task 4.2: Router Public API
+
+**Files:**
+- Create: `include/iohttp/io_router.h`
+- Create: `src/router/io_router.c`
 - Create: `tests/unit/test_io_router.c`
 - Modify: `CMakeLists.txt`
 
 **Implementation:**
 
-Longest-prefix trie with path parameter extraction:
+Public API wrapping radix trie with per-method trees, auto-405, auto-HEAD, path correction.
 
 ```c
-typedef int (*io_handler_fn)(io_request_t *req, io_response_t *resp, void *ctx);
+/* include/iohttp/io_router.h — PUBLIC API */
+
+/* Handler returns int: 0 = success, negative errno = error.
+   Error triggers centralized error handler (bunrouter/echo pattern). */
+typedef int (*io_handler_fn)(io_request_t *req, io_response_t *resp);
+
+/* Route options — extensible metadata per-route (FastAPI-inspired) */
+typedef struct {
+    void                *oas_operation;  /* oas_operation_t* for liboas binding */
+    uint32_t             permissions;    /* bitmask for auth middleware */
+    bool                 auth_required;
+} io_route_opts_t;
 
 [[nodiscard]] io_router_t *io_router_create(void);
 void io_router_destroy(io_router_t *router);
-[[nodiscard]] int io_route_add(io_router_t *router, io_method_t method,
-                                const char *pattern, io_handler_fn handler, void *ctx);
-[[nodiscard]] int io_route_group(io_router_t *router, const char *prefix,
-                                  io_middleware_fn *middleware, uint32_t mw_count);
-io_route_match_t io_router_match(io_router_t *router, io_method_t method,
-                                   const char *path, size_t path_len);
+
+/* Method-specific registration (bunrouter/Express pattern) */
+[[nodiscard]] int io_router_get(io_router_t *r, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_router_post(io_router_t *r, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_router_put(io_router_t *r, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_router_delete(io_router_t *r, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_router_patch(io_router_t *r, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_router_head(io_router_t *r, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_router_options(io_router_t *r, const char *pattern, io_handler_fn h);
+
+/* Generic method registration */
+[[nodiscard]] int io_router_handle(io_router_t *r, io_method_t method,
+                                    const char *pattern, io_handler_fn h);
+
+/* Host-based routing / virtual hosts (gorilla/mux pattern) */
+[[nodiscard]] io_router_t *io_router_host(io_router_t *r, const char *host_pattern);
+/* host_pattern: "api.example.com", "*.example.com" */
+
+/* Registration with route options */
+[[nodiscard]] int io_router_get_with(io_router_t *r, const char *pattern,
+                                      io_handler_fn h, const io_route_opts_t *opts);
+/* ... _with variants for all methods */
+
+/* Dispatch — returns match result including auto-405/auto-HEAD */
+io_route_match_t io_router_dispatch(const io_router_t *r, io_method_t method,
+                                      const char *path, size_t path_len);
 ```
 
-Path patterns: `/api/users/:id/config`, `/static/*`, `/health`
+**Auto-behaviors (httprouter patterns):**
+- **Auto-405 Method Not Allowed**: if path matches in another method's tree,
+  return 405 with `Allow` header listing valid methods
+- **Auto-HEAD**: HEAD requests fall back to GET handler if no explicit HEAD route
+- **Trailing slash redirect**: `/users/` ↔ `/users` — 301 redirect
+- **Path auto-correction**: `//foo/../bar` → `/bar`, case-insensitive match → 301 redirect
 
-**Tests (10):**
+**Path security:**
+- Path normalization before lookup (collapse `//`, resolve `..`)
+- NUL-byte rejection: any `%00` → 400
+- Path traversal blocking: `..` escaping document root → 400
+
+**Tests (18):**
 ```c
+// Core routing
 void test_router_create_destroy(void);
-void test_router_exact_match(void);              // /health
-void test_router_path_param(void);               // /users/:id → extracts id
-void test_router_wildcard(void);                 // /static/* matches /static/foo/bar
-void test_router_method_dispatch(void);          // GET vs POST same path
-void test_router_no_match(void);                 // 404
-void test_router_longest_prefix(void);           // /api/v1/ over /api/
-void test_router_path_normalization(void);       // //foo/../bar → /bar
-void test_router_path_traversal_blocked(void);   // /../etc/passwd → rejected
-void test_router_null_byte_blocked(void);        // /foo%00bar → rejected
+void test_router_get_exact(void);                 // GET /health
+void test_router_post_exact(void);                // POST /users
+void test_router_path_param(void);                // GET /users/:id → extract "42"
+void test_router_multiple_params(void);           // GET /users/:uid/posts/:pid
+void test_router_wildcard(void);                  // GET /static/*path → "css/app.css"
+void test_router_method_dispatch(void);           // GET /users vs POST /users
+
+// Priority (deterministic, order-independent)
+void test_router_priority_static_over_param(void);   // /users/me wins over /users/:id
+void test_router_priority_param_over_wildcard(void);  // /files/:name wins over /files/*path
+
+// Auto-behaviors (httprouter)
+void test_router_auto_405(void);                  // DELETE /health → 405 + Allow: GET
+void test_router_auto_head(void);                 // HEAD /users → falls back to GET handler
+void test_router_trailing_slash_redirect(void);   // /users/ → 301 → /users
+void test_router_path_correction(void);           // //foo → 301 → /foo
+
+// Security
+void test_router_path_normalization(void);        // //foo/../bar → /bar
+void test_router_path_traversal_blocked(void);    // /../etc/passwd → 400
+void test_router_null_byte_blocked(void);         // /foo%00bar → 400
+
+// Conflict detection (matchit)
+void test_router_conflict_same_level(void);       // /:id + /:name → -EEXIST
+void test_router_no_conflict_diff_method(void);   // GET /:id + POST /:name → OK (separate trees)
 ```
 
 ---
 
-### Task 4.2: Middleware Chain
+### Task 4.3: Route Groups
 
 **Files:**
-- Create: `src/core/io_middleware.h`
-- Create: `src/core/io_middleware.c`
+- Create: `src/router/io_route_group.h`
+- Create: `src/router/io_route_group.c`
+- Create: `tests/unit/test_io_route_group.c`
+- Modify: `CMakeLists.txt`
+
+**Implementation:**
+
+Nested route groups with prefix composition and per-group middleware (Express.Router pattern).
+
+```c
+/* Route group — composable sub-router with shared prefix + middleware */
+typedef struct io_group io_group_t;
+
+[[nodiscard]] io_group_t *io_router_group(io_router_t *r, const char *prefix);
+[[nodiscard]] io_group_t *io_group_subgroup(io_group_t *g, const char *prefix);
+
+/* Method-specific registration on groups */
+[[nodiscard]] int io_group_get(io_group_t *g, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_group_post(io_group_t *g, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_group_put(io_group_t *g, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_group_delete(io_group_t *g, const char *pattern, io_handler_fn h);
+/* ... patch, head, options */
+
+/* Attach middleware to group (applies to all routes in group + subgroups) */
+[[nodiscard]] int io_group_use(io_group_t *g, io_middleware_fn mw);
+```
+
+**Example usage:**
+```c
+io_group_t *api = io_router_group(router, "/api");
+io_group_use(api, auth_middleware);
+
+io_group_t *v1 = io_group_subgroup(api, "/v1");
+io_group_get(v1, "/users/:id", get_user);     // → GET /api/v1/users/:id
+io_group_post(v1, "/users", create_user);      // → POST /api/v1/users
+
+io_group_t *admin = io_group_subgroup(api, "/admin");
+io_group_use(admin, admin_only_middleware);
+io_group_delete(admin, "/users/:id", del_user); // → DELETE /api/admin/users/:id
+// middleware chain: auth → admin_only → del_user
+```
+
+**Tests (10):**
+```c
+void test_group_create(void);
+void test_group_prefix_composition(void);       // /api + /v1 + /users → /api/v1/users
+void test_group_nested_subgroup(void);           // 3-level nesting
+void test_group_method_registration(void);       // io_group_get/post/put/delete
+void test_group_middleware_applied(void);         // group middleware runs for group routes
+void test_group_middleware_not_leaked(void);      // group middleware doesn't affect sibling groups
+void test_group_middleware_inheritance(void);     // subgroup inherits parent middleware
+void test_group_middleware_order(void);           // parent middleware before child middleware
+void test_group_empty(void);                     // group with no routes
+void test_group_with_route_opts(void);           // io_group_get_with() + metadata
+```
+
+---
+
+### Task 4.4: Typed Param Extraction
+
+**Files:**
+- Modify: `include/iohttp/io_request.h`
+- Modify: `src/http/io_request.c`
+- Create: `tests/unit/test_io_params.c`
+- Modify: `CMakeLists.txt`
+
+**Implementation:**
+
+Typed parameter access on `io_request_t` (echo/FastAPI-inspired).
+
+```c
+/* String param — always available, zero-copy pointer into path */
+const char *io_request_param(const io_request_t *req, const char *name);
+
+/* Typed extraction — returns 0 on success, -EINVAL on conversion failure */
+[[nodiscard]] int io_request_param_i64(const io_request_t *req, const char *name, int64_t *out);
+[[nodiscard]] int io_request_param_u64(const io_request_t *req, const char *name, uint64_t *out);
+[[nodiscard]] int io_request_param_bool(const io_request_t *req, const char *name, bool *out);
+
+/* Param count */
+uint32_t io_request_param_count(const io_request_t *req);
+
+/* Query params (separate from path params) */
+const char *io_request_query(const io_request_t *req, const char *name);
+[[nodiscard]] int io_request_query_i64(const io_request_t *req, const char *name, int64_t *out);
+```
+
+**Tests (10):**
+```c
+void test_param_string(void);                // /users/alice → "alice"
+void test_param_i64_valid(void);             // /users/42 → 42
+void test_param_i64_negative(void);          // /offset/-5 → -5
+void test_param_i64_invalid(void);           // /users/abc → -EINVAL
+void test_param_i64_overflow(void);          // /users/99999999999999999999 → -ERANGE
+void test_param_u64_valid(void);             // /id/18446744073709551615
+void test_param_bool_true(void);             // /flag/true, /flag/1
+void test_param_bool_false(void);            // /flag/false, /flag/0
+void test_param_missing(void);               // nonexistent param → nullptr / -EINVAL
+void test_param_wildcard(void);              // /static/*path → "js/app.css"
+```
+
+---
+
+### Task 4.5: Route Introspection & liboas Binding
+
+**Files:**
+- Create: `src/router/io_route_inspect.h`
+- Create: `src/router/io_route_inspect.c`
+- Create: `tests/unit/test_io_route_inspect.c`
+- Modify: `CMakeLists.txt`
+
+**Implementation:**
+
+Route walking for documentation generation + liboas binding (gorilla/mux + FastAPI-inspired).
+
+```c
+/* Route info returned during walk */
+typedef struct {
+    io_method_t     method;
+    const char     *pattern;        /* original pattern string */
+    io_handler_fn   handler;
+    const io_route_opts_t *opts;    /* metadata, oas_operation, permissions */
+} io_route_info_t;
+
+/* Walk callback — called for each registered route */
+typedef int (*io_route_walk_fn)(const io_route_info_t *info, void *ctx);
+
+/* Walk all routes — useful for docs generation, /openapi.json, debug logging */
+[[nodiscard]] int io_router_walk(const io_router_t *r, io_route_walk_fn fn, void *ctx);
+
+/* Count registered routes */
+uint32_t io_router_route_count(const io_router_t *r);
+
+/* Bind oas_operation_t* to existing route (alternative to _with registration) */
+[[nodiscard]] int io_router_set_metadata(io_router_t *r, io_method_t method,
+                                          const char *pattern, void *metadata);
+```
+
+**Tests (6):**
+```c
+void test_route_walk_all(void);              // walk 5 routes, verify all visited
+void test_route_walk_order(void);            // routes visited in registration order
+void test_route_walk_includes_groups(void);  // group routes included in walk
+void test_route_count(void);                 // correct count after add/group
+void test_route_set_metadata(void);          // attach metadata to existing route
+void test_route_metadata_in_match(void);     // metadata available in dispatch result
+```
+
+---
+
+### Task 4.6: Middleware Chain
+
+**Files:**
+- Create: `include/iohttp/io_middleware.h`
+- Create: `src/middleware/io_middleware.c`
 - Create: `tests/unit/test_io_middleware.c`
 - Modify: `CMakeLists.txt`
 
 **Implementation:**
 
 ```c
+/* Middleware signature — calls next() to continue chain, or returns to short-circuit.
+   Return: 0 = success, negative errno = error → centralized error handler. */
 typedef int (*io_middleware_fn)(io_request_t *req, io_response_t *resp,
-                                 void *ctx, io_next_fn next);
+                                 io_next_fn next);
 
-[[nodiscard]] int io_middleware_add(io_server_t *srv, io_middleware_fn fn, void *ctx);
-[[nodiscard]] int io_middleware_add_route(io_server_t *srv, const char *prefix,
-                                          io_middleware_fn fn, void *ctx);
+/* Global middleware — runs for all routes */
+[[nodiscard]] int io_router_use(io_router_t *r, io_middleware_fn mw);
+
+/* Error handler — called when handler or middleware returns non-zero */
+typedef int (*io_error_handler_fn)(io_request_t *req, io_response_t *resp, int error);
+void io_router_set_error_handler(io_router_t *r, io_error_handler_fn h);
+
+/* Custom 404/405 handlers (httprouter pattern) */
+void io_router_set_not_found(io_router_t *r, io_handler_fn h);
+void io_router_set_method_not_allowed(io_router_t *r, io_handler_fn h);
 ```
 
-Chain execution: middleware[0] → middleware[1] → ... → handler. Each middleware
-calls `next(req, resp)` to continue chain, or returns directly to short-circuit.
+Chain execution: global_mw[0] → global_mw[1] → group_mw[0] → group_mw[1] → handler.
+Each middleware calls `next(req, resp)` to continue chain, or returns to short-circuit.
+Errors propagate to error handler.
 
-**Tests (8):**
+**Tests (10):**
 ```c
 void test_middleware_chain_order(void);        // A → B → C → handler
-void test_middleware_short_circuit(void);      // A returns 401, B never called
+void test_middleware_short_circuit(void);      // A returns -EPERM, B never called
 void test_middleware_modify_request(void);     // add header before handler
 void test_middleware_modify_response(void);    // add header after handler
-void test_middleware_per_route(void);          // /api/* middleware, not /health
+void test_middleware_per_group(void);          // group middleware only for group routes
 void test_middleware_empty_chain(void);        // no middleware → direct handler
-void test_middleware_error_propagation(void);  // handler error propagates
-void test_middleware_ctx_passed(void);         // user context available
+void test_middleware_error_handler(void);      // handler returns -1 → error_handler called
+void test_middleware_custom_404(void);         // custom not-found handler
+void test_middleware_custom_405(void);         // custom method-not-allowed handler
+void test_middleware_global_plus_group(void);  // global mw runs before group mw
 ```
 
 ---
 
-### Task 4.3: Built-in Middleware
+### Task 4.7: Built-in Middleware
 
 **Files:**
 - Create: `src/middleware/io_cors.h` + `io_cors.c`
@@ -632,15 +1021,22 @@ typedef struct {
 [[nodiscard]] io_middleware_fn io_cors_middleware(const io_cors_config_t *cfg);
 ```
 
-**Rate limiting (200-400 LOC) — token bucket per IP:**
+**Rate limiting + Slowloris defense (300-500 LOC) — token bucket per IP + slow client protection:**
 ```c
 typedef struct {
     uint32_t requests_per_second;
     uint32_t burst;
+    uint32_t max_connections_per_ip;     /* default 10, prevents Slowloris connection exhaustion */
+    uint32_t min_transfer_rate_bps;     /* minimum bytes/sec for request body, 0 = disabled */
 } io_ratelimit_config_t;
 
 [[nodiscard]] io_middleware_fn io_ratelimit_middleware(const io_ratelimit_config_t *cfg);
 ```
+
+Slowloris/Slow POST defense integrated with io_uring linked timeouts:
+- Header read timeout 5-15s via `io_uring_prep_link_timeout()` (already in io_loop)
+- Minimum transfer rate enforcement for POST/PUT bodies
+- Per-IP connection limits (max_connections_per_ip)
 
 **Security headers (150-300 LOC):**
 ```c
@@ -680,6 +1076,8 @@ void test_ratelimit_over_limit_429(void);
 void test_ratelimit_burst(void);
 void test_ratelimit_refill(void);
 void test_ratelimit_per_ip(void);
+void test_ratelimit_max_conns_per_ip(void);          // > max → 429
+void test_ratelimit_slow_post_rejected(void);        // below min_transfer_rate → 408
 
 // Security headers
 void test_security_csp_header(void);
@@ -835,6 +1233,52 @@ void test_compress_precompressed_br(void);       // serve .br file
 void test_compress_below_min_size(void);         // skip small responses
 ```
 
+### Task 5.4: Multipart/Form-Data Parser
+
+**Files:**
+- Create: `src/http/io_multipart.h`
+- Create: `src/http/io_multipart.c`
+- Create: `tests/unit/test_io_multipart.c`
+- Modify: `CMakeLists.txt`
+
+**Implementation:**
+
+Streaming multipart parser for file uploads (RFC 7578):
+
+```c
+typedef struct {
+    const char *name;          /* form field name */
+    const char *filename;      /* original filename (if file upload) */
+    const char *content_type;  /* part content-type */
+    const uint8_t *data;       /* part body (zero-copy pointer) */
+    size_t data_len;
+} io_multipart_part_t;
+
+typedef struct {
+    uint32_t max_parts;        /* default 64 */
+    size_t max_part_size;      /* default 10MB */
+    size_t max_total_size;     /* default 50MB */
+} io_multipart_config_t;
+
+/* Parse all parts from multipart body */
+[[nodiscard]] int io_multipart_parse(const io_request_t *req,
+                                      const io_multipart_config_t *cfg,
+                                      io_multipart_part_t *parts,
+                                      uint32_t *part_count);
+```
+
+**Tests (8):**
+```c
+void test_multipart_single_field(void);          // name=value
+void test_multipart_file_upload(void);           // file with filename + content-type
+void test_multipart_multiple_parts(void);        // 3 fields + 1 file
+void test_multipart_empty_body(void);            // no parts → 0
+void test_multipart_missing_boundary(void);      // no boundary in content-type → error
+void test_multipart_oversized_part(void);        // part > max_part_size → -E2BIG
+void test_multipart_too_many_parts(void);        // > max_parts → -E2BIG
+void test_multipart_malformed(void);             // broken boundary → error
+```
+
 ---
 
 ## Sprint 6: WebSocket & SSE (2-3 weeks)
@@ -961,10 +1405,11 @@ void test_sse_close(void);
 
 ```c
 typedef struct {
-    uint32_t max_concurrent_streams;   /* default 100 */
+    uint32_t max_concurrent_streams;   /* default 100 — CVE-2023-44487 Rapid Reset protection */
     uint32_t initial_window_size;      /* default 65535 */
     uint32_t max_frame_size;           /* default 16384 */
     uint32_t max_header_list_size;     /* default 8192 */
+    uint32_t max_rst_stream_per_sec;   /* default 100, Rapid Reset rate limit */
 } io_http2_config_t;
 
 [[nodiscard]] io_http2_session_t *io_http2_session_create(
@@ -991,9 +1436,11 @@ void test_http2_simple_get(void);               // HEADERS frame → response
 void test_http2_post_with_body(void);           // HEADERS + DATA → response
 void test_http2_stream_multiplexing(void);      // 3 concurrent streams
 void test_http2_flow_control(void);             // WINDOW_UPDATE
-void test_http2_goaway(void);                   // graceful shutdown
+void test_http2_goaway_two_phase(void);          // two-phase GOAWAY: first with 2^31-1, then real last_stream_id
+void test_http2_goaway_drains(void);            // GOAWAY → wait for want_read==0 && want_write==0 → close
 void test_http2_rst_stream(void);               // stream error
-void test_http2_max_concurrent_streams(void);   // reject excess streams
+void test_http2_max_concurrent_streams(void);   // reject excess streams (CVE-2023-44487)
+void test_http2_rapid_reset_protection(void);   // excessive RST_STREAM rate → GOAWAY + disconnect
 ```
 
 ---
@@ -1041,11 +1488,20 @@ void test_http2_server_push(void);              // optional: server push
 **Implementation:**
 
 ```c
+typedef enum : uint8_t {
+    IO_QUIC_CC_CUBIC,       /* default, good for stable networks */
+    IO_QUIC_CC_NEWRENO,     /* simple, RFC-compliant */
+    IO_QUIC_CC_BBR2,        /* best for lossy/mobile networks: ~21% better p99 latency */
+} io_quic_cc_algo_t;
+
 typedef struct {
     uint32_t max_streams_bidi;       /* default 100 */
     uint32_t initial_max_data;       /* default 1MB */
     uint64_t idle_timeout_ms;        /* default 30000 */
     bool enable_0rtt;
+    bool enable_gso;                 /* UDP GSO for batch send (Linux 4.18+) */
+    bool enable_gro;                 /* UDP GRO for batch recv (Linux 5.0+) */
+    io_quic_cc_algo_t cc_algo;       /* congestion control algorithm */
 } io_quic_config_t;
 
 [[nodiscard]] io_quic_server_t *io_quic_server_create(
@@ -1060,6 +1516,20 @@ void io_quic_server_destroy(io_quic_server_t *srv);
 Uses `ngtcp2_crypto_wolfssl_configure_server_context()` for QUIC crypto.
 UDP socket management via io_uring recv/send.
 
+**UDP GSO/GRO:** GSO sends multiple QUIC packets in one sendmsg via `UDP_SEGMENT` cmsg.
+GRO coalesces received packets. ngtcp2 natively supports GSO via `ngtcp2_conn_write_aggregate_pkt()`.
+Integrate with io_uring through `io_uring_prep_sendmsg()` with cmsg for `UDP_SEGMENT`.
+
+**QUIC CID demultiplexing:** Multishot UDP recv delivers mixed packets from all clients.
+Implement CID-to-connection lookup (hash table) for O(1) packet routing to `ngtcp2_conn`.
+`SO_REUSEPORT` for multiple worker threads receiving on same UDP port.
+
+**Connection migration:** ngtcp2 fully supports QUIC connection migration. Server requirements:
+handle PATH_CHALLENGE/PATH_RESPONSE, update CID mapping on migration, validate new path.
+
+**Congestion control:** ngtcp2 supports CUBIC (default), NewReno, BBRv2. BBRv2 gives ~21% better
+p99 latency on lossy networks (mobile clients). Configurable via `io_quic_cc_algo_t`.
+
 **Tests (8):**
 ```c
 void test_quic_server_create_destroy(void);
@@ -1070,6 +1540,11 @@ void test_quic_stream_data(void);
 void test_quic_connection_close(void);
 void test_quic_idle_timeout(void);
 void test_quic_wolfssl_crypto(void);            // ngtcp2_crypto_wolfssl
+void test_quic_gso_sendmsg(void);              // UDP GSO batch send
+void test_quic_cid_demux(void);                // CID-to-connection lookup
+void test_quic_connection_migration(void);     // path change, CID remapping
+void test_quic_cc_cubic(void);                 // default congestion control
+void test_quic_cc_bbr2(void);                  // BBRv2 selection
 ```
 
 ---
@@ -1199,21 +1674,43 @@ void test_logging_tls_info(void);               // TLS version in log
 
 **Implementation:**
 
+**Lock-free thread-local metrics architecture:** Each worker thread maintains a thread-local
+metrics registry aligned to cache line boundaries (64 bytes). No atomic operations in hot path.
+On `/metrics` scrape, a dedicated thread iterates thread-local blocks, aggregates counters
+without locks, serializes to Prometheus text exposition format.
+
 ```
 # HELP io_http_requests_total Total HTTP requests
 # TYPE io_http_requests_total counter
 io_http_requests_total{method="GET",status="200"} 1234
 
-# HELP io_http_connections_active Active connections
+# HELP io_http_connections_active Active connections by protocol
 # TYPE io_http_connections_active gauge
-io_http_connections_active 42
+io_http_connections_active{protocol="h1"} 30
+io_http_connections_active{protocol="h2"} 10
+io_http_connections_active{protocol="h3"} 2
 
 # HELP io_http_request_duration_seconds Request duration
 # TYPE io_http_request_duration_seconds histogram
 io_http_request_duration_seconds_bucket{le="0.01"} 900
+
+# HELP io_tls_handshake_duration_seconds TLS handshake duration
+# TYPE io_tls_handshake_duration_seconds histogram
+io_tls_handshake_duration_seconds_bucket{le="0.05"} 800
+
+# HELP io_uring_sqe_submitted_total Total SQEs submitted
+# TYPE io_uring_sqe_submitted_total counter
+io_uring_sqe_submitted_total 50000
+
+# HELP io_bufpool_available Available buffers in provided buffer ring
+# TYPE io_bufpool_available gauge
+io_bufpool_available 96
 ```
 
-Built-in `/metrics` endpoint + `/health` + `/ready`.
+Built-in endpoints:
+- `/metrics` — Prometheus text exposition
+- `/health` — liveness check (always 200 if server running)
+- `/ready` — readiness check (verifies TLS certs loaded, buffer pools healthy, connection limits OK)
 
 **Tests (6):**
 ```c
@@ -1223,6 +1720,10 @@ void test_metrics_histogram_observe(void);
 void test_metrics_text_exposition(void);
 void test_metrics_health_endpoint(void);
 void test_metrics_ready_endpoint(void);
+void test_metrics_thread_local_no_contention(void);  // verify no locks in hot path
+void test_metrics_aggregation_across_threads(void);   // scrape aggregates thread-local counters
+void test_metrics_cache_line_aligned(void);           // verify 64-byte alignment
+void test_metrics_protocol_labels(void);              // h1/h2/h3 protocol labels
 ```
 
 ---
@@ -1271,17 +1772,17 @@ void test_metrics_ready_endpoint(void);
 
 | Sprint | Focus | New Tests |
 |--------|-------|-----------|
-| 1 | io_uring + Server Skeleton | 37 |
-| 2 | wolfSSL TLS Integration | 15 |
-| 3 | HTTP/1.1 + PROXY Protocol | 40 |
-| 4 | Router + Middleware | 42 |
-| 5 | Static Files + SPA + Compression | 26 |
+| 1 | io_uring + Server Skeleton (+ ring restrictions) | 42 |
+| 2 | wolfSSL TLS Integration (+ hot reload, serialization) | 16 |
+| 3 | HTTP/1.1 + PROXY Protocol | 52 |
+| 4 | Router + Middleware (+ Slowloris defense) | 92 |
+| 5 | Static Files + SPA + Compression + Multipart | 34 |
 | 6 | WebSocket + SSE | 20 |
-| 7 | HTTP/2 (nghttp2) | 16 |
-| 8 | HTTP/3 (ngtcp2 + nghttp3) | 21 |
-| 9 | JSON + Logging + Metrics | 20 |
+| 7 | HTTP/2 (+ two-phase GOAWAY, Rapid Reset CVE-2023-44487) | 18 |
+| 8 | HTTP/3 (+ GSO/GRO, CID demux, BBRv2, conn migration) | 26 |
+| 9 | JSON + Logging + Metrics (lock-free thread-local) | 24 |
 | 10 | Fuzz + Bench + Docs | 5 fuzz targets |
-| **Total** | | **~237 tests + 5 fuzz targets** |
+| **Total** | | **~324 tests + 5 fuzz targets** |
 
 ## Timeline
 
@@ -1290,14 +1791,102 @@ void test_metrics_ready_endpoint(void);
 | S1 | 3-4 weeks | io_uring event loop, basic server |
 | S2 | 2-3 weeks | TLS handshake over io_uring |
 | S3 | 3-4 weeks | Working HTTP/1.1 server (usable MVP) |
-| S4 | 2-3 weeks | Router + middleware (production-ready HTTP/1.1) |
+| S4 | 3-4 weeks | Radix-trie router + middleware (production-ready HTTP/1.1) |
 | S5 | 2-3 weeks | Static files + SPA serving |
 | S6 | 2-3 weeks | WebSocket + SSE |
 | S7 | 3-4 weeks | HTTP/2 support |
 | S8 | 4-5 weeks | HTTP/3 + QUIC support |
 | S9 | 2 weeks | API, logging, metrics |
 | S10 | 3-4 weeks | Stabilization, benchmarks, docs |
-| **Total** | **~26-35 weeks** | **v0.1.0 release** |
+| **Total** | **~27-37 weeks** | **v0.1.0 release** |
+
+## Router Design Heritage
+
+The iohttp router synthesizes best practices from the most influential HTTP routers:
+
+| Pattern | Origin | Year | iohttp Feature |
+|---------|--------|------|----------------|
+| Radix trie routing | httprouter (Go) | 2013 | Compressed prefix tree, per-method trees |
+| Zero-allocation dispatch | httprouter | 2013 | No heap alloc in match path (natural in C) |
+| Static > param > wildcard priority | httprouter / echo | 2013 | Deterministic, order-independent |
+| Auto-405 Method Not Allowed | httprouter / FastRoute | 2013 | Path matches another method → 405 + Allow |
+| Auto-HEAD fallback to GET | FastRoute (PHP) | 2014 | HEAD with no handler → use GET handler |
+| Trailing slash redirect | httprouter | 2013 | /users/ ↔ /users → 301 |
+| Path auto-correction | httprouter | 2013 | //foo, /FOO → 301 to canonical |
+| Route groups + prefix | Express.Router (Node) | 2010 | Nested groups with middleware inheritance |
+| next() middleware chain | Express (Node) | 2010 | Short-circuit or continue chain |
+| Handler returns error | bunrouter / echo (Go) | 2021 | int return → centralized error handler |
+| Method-specific registration | Sinatra / Flask / echo | 2007 | io_router_get(), io_router_post(), ... |
+| Conflict detection | matchit / Axum (Rust) | 2021 | /:id + /:name → error at registration |
+| Route introspection / walking | gorilla/mux (Go) | 2012 | io_router_walk() for docs generation |
+| Typed param extraction | echo / FastAPI | 2015 | io_request_param_i64(), _u64(), _bool() |
+| Route metadata attachment | FastAPI (Python) | 2018 | oas_operation_t* per route for OpenAPI |
+| Param regex constraints | FastRoute | 2014 | NOT adopted (YAGNI — use typed extraction) |
+| Named routes / URL reversal | gorilla/mux | 2012 | NOT adopted (YAGNI for embedded C server) |
+| Optional segments | FastRoute | 2014 | NOT adopted (YAGNI) |
+
+## liboas Integration Architecture
+
+liboas is a **separate project** — an OpenAPI 3.2.0 library that integrates with iohttp via adapter.
+
+**Key architectural principle:** One route lookup. iohttp's router finds the route; liboas receives
+the already-matched `oas_operation_t*` via route metadata — no second path matching in hot path.
+
+**Integration points in iohttp:**
+- `io_route_opts_t.oas_operation` — pointer to compiled operation metadata
+- `io_router_walk()` — route introspection for OpenAPI spec generation
+- `io_tls_peer_info_t` — normalized TLS/mTLS metadata for security context
+- `io_conn_info_t` — real client IP (after PROXY protocol) for security context
+- Middleware hooks — pre-handler request validation, post-handler response validation
+
+**What iohttp provides to liboas (via adapter):**
+- `io_request_t` → `oas_runtime_request_t` mapping
+- `io_response_t` → `oas_runtime_response_t` mapping
+- TLS/auth/proxy context → `oas_security_ctx_t` mapping
+- `/openapi.json` publish helper
+
+**What iohttp does NOT do:**
+- No OpenAPI parsing/compilation (liboas responsibility)
+- No JSON Schema validation (liboas responsibility)
+- No duplicate route matching (one lookup only)
+
+## Audit-Driven Additions (2026-03-08)
+
+Based on technical audit (`iohttp-technical-audit.md`) and architectural audit (`iohttp-architectural-audit.md`):
+
+**Added to plan:**
+
+| Addition | Sprint | Rationale |
+|----------|--------|-----------|
+| `IORING_REGISTER_RESTRICTIONS` | S1 | io_uring bypasses seccomp — must whitelist opcodes |
+| SEND_ZC dynamic threshold (2 KiB) | S1 | ZC slower for small payloads due to page pinning overhead |
+| SQPOLL optional, DEFER_TASKRUN default | S1 | SQPOLL burns CPU core, wrong for bursty HTTP traffic |
+| Kernel 6.7 justification (CVE-2024-0582) | S1 | Provided buffer ring use-after-free in 6.4–6.6.4 |
+| SIGPIPE SIG_IGN at startup | S1 | wolfSSL can trigger SIGPIPE on closed socket write |
+| wolfSSL I/O serialization note | S2 | Single I/O buffer per SSL object — natural in ring-per-thread |
+| TLS certificate hot reload | S2 | Atomic CTX swap with refcount for zero-downtime cert rotation |
+| Slowloris/Slow POST defense | S4 | Per-IP conn limits, min transfer rate, linked timeouts |
+| Two-phase GOAWAY (HTTP/2) | S7 | Best practice: first GOAWAY with 2^31-1, then real last_stream_id |
+| HTTP/2 Rapid Reset (CVE-2023-44487) | S7 | RST_STREAM rate limiting, max_concurrent_streams enforcement |
+| UDP GSO/GRO for QUIC | S8 | Batch send/recv for QUIC — significant throughput gain |
+| Congestion control config (BBRv2) | S8 | ~21% better p99 latency on lossy/mobile networks vs CUBIC |
+| QUIC CID demultiplexing | S8 | Hash table for O(1) packet routing to ngtcp2_conn |
+| QUIC connection migration | S8 | PATH_CHALLENGE/RESPONSE, CID remapping |
+| Lock-free thread-local metrics | S9 | Cache-line aligned, no atomics in hot path, aggregate on scrape |
+| Specific Prometheus metric names | S9 | protocol labels, io_uring metrics, buffer pool metrics |
+| Health/readiness endpoints | S9 | `/health` (liveness) + `/ready` (TLS/buffers/conns check) |
+
+**Rejected (YAGNI):**
+
+| Proposal | Reason |
+|----------|--------|
+| Adaptive Radix Tree (ART) | Standard radix trie sufficient for <1000 routes (typical HTTP server) |
+| Distributed tracing (W3C traceparent) | Not for embedded HTTP library — add via middleware if needed |
+| Config hot reload (beyond TLS certs) | Not for v0.1.0 — restart is acceptable |
+| eBPF for QUIC CID routing | Too complex for first release — user-space hash table sufficient |
+| Custom wolfSSL memory allocator (slab) | Premature optimization — profile first |
+| OpenTelemetry | Prometheus pull model far lighter for embedded C server |
+| NGINX Unit / Drogon / Boost.Beast in comparison | C++ projects, not direct competitors to embedded C library |
 
 ## Critical Dependencies
 
@@ -1309,3 +1898,4 @@ void test_metrics_ready_endpoint(void);
 6. **nghttp3** — system package (Sprint 8)
 7. **yyjson** — system package (Sprint 9)
 8. **zlib + brotli** — system packages (Sprint 5)
+9. **liboas** — separate project, adapter integration (Sprint 9+)
