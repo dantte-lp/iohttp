@@ -240,3 +240,13 @@ add_library(io_conn STATIC src/core/io_conn.c)
 target_include_directories(io_conn PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
 io_add_test(test_io_conn tests/unit/test_io_conn.c io_conn)
+
+# ============================================================================
+# Sprint 1: Server lifecycle management
+# ============================================================================
+
+add_library(io_server STATIC src/core/io_server.c)
+target_include_directories(io_server PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_server PUBLIC io_loop io_conn)
+
+io_add_test(test_io_server tests/unit/test_io_server.c io_server io_loop io_conn)
