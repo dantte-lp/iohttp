@@ -31,7 +31,7 @@ cmake --build --preset clang-debug --target docs      # Doxygen
 - **System GCC**: 14.3.1 (OL10 default, used by some library builds)
 - **Linker**: mold (debug), GNU ld/lld (release)
 - **Key tools**: CMake 4.2.3, Unity 2.6.1, cppcheck, Doxygen 1.16.1
-- **Shared deps**: wolfSSL 5.8.2+ (--enable-quic), liburing 2.14, yyjson 0.12.0
+- **Shared deps**: wolfSSL 5.8.4+ (--enable-quic), liburing 2.14, yyjson 0.12.0
 - **iohttp-specific deps**: nghttp2, ngtcp2 + ngtcp2_crypto_wolfssl, nghttp3, zlib-devel, brotli-devel
 - **picohttpparser**: vendored (~800 LOC, no external dep)
 - `_GNU_SOURCE` needed for `explicit_bzero`, `signalfd`, etc. under `-std=c23`
@@ -108,12 +108,24 @@ deploy/podman/      # Container configurations
 - **SEND_ZC threshold**: regular send < 2 KiB, SEND_ZC > 2 KiB, splice for static files; SEND_ZC generates 2 CQEs (completion + buffer notification)
 - **wolfSSL I/O serialization**: single I/O buffer per SSL object; reads/writes must be serialized; natural in ring-per-thread model
 
+## io_uring Critical Rules (MANDATORY)
+
+- **CQE errors**: `cqe->res < 0` is `-errno` (NOT global errno). Handle EVERY CQE.
+- **Send serialization**: ONE active send per TCP connection. Use per-connection send queue, next send only after CQE. Kernel may reorder concurrent sends.
+- **fd close ordering**: cancel pending ops → wait ALL CQE (incl `-ECANCELED`) → close fd → cleanup. NEVER close fd with in-flight ops (kernel UB).
+- **SQE batching**: NEVER `io_uring_submit()` per-SQE. Batch 16-64 minimum. Per-SQE submit = no io_uring benefit.
+- **CQE batching**: use `io_uring_for_each_cqe` + `io_uring_cq_advance`, not single `io_uring_wait_cqe` per CQE.
+- **Multishot CQE_F_MORE**: ALWAYS check. Absence = operation terminated silently, must re-arm.
+- **Memory domains**: control plane (connection state, parsers) vs data plane (RX/TX buffer pools). Separate TLS cipher buffers from plaintext.
+- **WANT_READ/WANT_WRITE**: NOT errors. Normal for non-blocking TLS — arm recv/send, resume later.
+- **Anti-patterns**: no blocking in CQE handler, no mixed sync/async on same fd, no unbounded queues, no per-connection threads.
+
 ## Library Stack
 
 ### Core
 | Library       | Version | Role                          |
 |---------------|---------|-------------------------------|
-| wolfSSL       | 5.8.2+  | TLS 1.3, QUIC crypto, mTLS   |
+| wolfSSL       | 5.8.4+  | TLS 1.3, QUIC crypto, mTLS   |
 | liburing      | 2.7+    | All I/O: network, timers     |
 | picohttpparser| latest  | HTTP/1.1 parsing (SSE4.2)    |
 | nghttp2       | latest  | HTTP/2 frames + HPACK        |
@@ -158,7 +170,7 @@ wolfSSL license needs clarification before release — GitHub LICENSING says GPL
 
 See `.claude/skills/` for detailed guidance on:
 - **`iohttp-architecture/`** — Architecture, directory layout, naming, state machine, P0-P4 phasing (MANDATORY)
-- **`io-uring-patterns/`** — SQE/CQE patterns, provided buffers, multishot, linked timeouts, zero-copy, REGISTER_RESTRICTIONS (MANDATORY for src/core/, src/net/)
+- **`io-uring-patterns/`** — SQE/CQE patterns, provided buffers, multishot, linked timeouts, zero-copy, error handling, send serialization, fd lifecycle, backpressure, anti-patterns, library integration (MANDATORY for src/core/, src/net/)
 - **`wolfssl-iohttp/`** — wolfSSL I/O callbacks, non-blocking TLS, ALPN/SNI, mTLS, QUIC crypto, I/O serialization (MANDATORY for src/tls/)
 - **`rfc-reference/`** — RFC index with key sections, priority map, protocol implementation notes
 
