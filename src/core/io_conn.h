@@ -1,0 +1,108 @@
+/**
+ * @file io_conn.h
+ * @brief Connection state machine and connection pool.
+ */
+
+#ifndef IOHTTP_CORE_CONN_H
+#define IOHTTP_CORE_CONN_H
+
+#include <netinet/in.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <sys/socket.h>
+
+/* ---- Connection states ---- */
+
+typedef enum : uint8_t {
+    IO_CONN_FREE = 0,
+    IO_CONN_ACCEPTING,
+    IO_CONN_PROXY_HEADER,
+    IO_CONN_TLS_HANDSHAKE,
+    IO_CONN_HTTP_ACTIVE,
+    IO_CONN_WEBSOCKET,
+    IO_CONN_SSE,
+    IO_CONN_DRAINING,
+    IO_CONN_CLOSING,
+} io_conn_state_t;
+
+/* ---- Connection ---- */
+
+typedef struct {
+    int fd;
+    io_conn_state_t state;
+    uint32_t id;                         /**< unique within pool */
+    struct sockaddr_storage peer_addr;
+    struct sockaddr_storage proxy_addr;   /**< from PROXY protocol */
+    bool proxy_used;
+    uint64_t created_at_ms;
+    uint64_t last_activity_ms;
+    void *protocol_ctx;                  /**< HTTP/1.1, HTTP/2, or HTTP/3 state */
+    void *tls_ctx;                       /**< WOLFSSL * */
+} io_conn_t;
+
+/* ---- Opaque pool type ---- */
+
+typedef struct io_conn_pool io_conn_pool_t;
+
+/* ---- Pool lifecycle ---- */
+
+/**
+ * @brief Create a connection pool.
+ * @param max_conns Maximum number of simultaneous connections.
+ * @return Non-null on success; nullptr on failure.
+ */
+[[nodiscard]] io_conn_pool_t *io_conn_pool_create(uint32_t max_conns);
+
+/**
+ * @brief Destroy a connection pool and release all resources.
+ * @param pool Pool to destroy (nullptr is safe).
+ */
+void io_conn_pool_destroy(io_conn_pool_t *pool);
+
+/* ---- Connection management ---- */
+
+/**
+ * @brief Allocate a connection slot from the pool.
+ * @return Connection in ACCEPTING state, or nullptr if the pool is full.
+ */
+[[nodiscard]] io_conn_t *io_conn_alloc(io_conn_pool_t *pool);
+
+/**
+ * @brief Free a connection slot back to the pool.
+ * @param pool  Pool that owns the connection.
+ * @param conn  Connection to release.
+ */
+void io_conn_free(io_conn_pool_t *pool, io_conn_t *conn);
+
+/**
+ * @brief Find a connection by file descriptor (linear scan).
+ * @return Matching connection or nullptr if not found.
+ */
+io_conn_t *io_conn_find(io_conn_pool_t *pool, int fd);
+
+/* ---- State machine ---- */
+
+/**
+ * @brief Transition a connection to a new state.
+ * @return 0 on success, -EINVAL on invalid transition.
+ */
+[[nodiscard]] int io_conn_transition(io_conn_t *conn, io_conn_state_t new_state);
+
+/**
+ * @brief Return the human-readable name of a connection state.
+ */
+const char *io_conn_state_name(io_conn_state_t state);
+
+/* ---- Pool stats ---- */
+
+/**
+ * @brief Return the number of active (non-FREE) connections.
+ */
+uint32_t io_conn_pool_active(const io_conn_pool_t *pool);
+
+/**
+ * @brief Return the maximum pool capacity.
+ */
+uint32_t io_conn_pool_capacity(const io_conn_pool_t *pool);
+
+#endif /* IOHTTP_CORE_CONN_H */
