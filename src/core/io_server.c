@@ -230,11 +230,13 @@ static int arm_send(io_server_t *srv, io_conn_t *conn, const uint8_t *data, size
         const uint8_t *out_data = nullptr;
         size_t out_len = 0;
         if (io_tls_get_output(tls, &out_data, &out_len) == 0 && out_len > 0) {
-            encrypted = malloc(out_len);
+            encrypted = malloc(out_len); //-V773
             if (encrypted == nullptr) {
                 return -ENOMEM;
             }
-            memcpy(encrypted, out_data, out_len);
+            if (out_data != nullptr) { //-V575
+                memcpy(encrypted, out_data, out_len);
+            }
             io_tls_consume_output(tls, out_len);
             send_data = encrypted;
             send_len = out_len;
@@ -249,7 +251,7 @@ static int arm_send(io_server_t *srv, io_conn_t *conn, const uint8_t *data, size
         if (conn->send_buf == nullptr) {
             return -ENOMEM;
         }
-        memcpy(conn->send_buf, send_data, send_len);
+        memcpy(conn->send_buf, send_data, send_len); //-V575
     }
     conn->send_len = send_len;
     conn->send_offset = 0;
