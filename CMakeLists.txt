@@ -461,3 +461,45 @@ target_include_directories(io_multipart PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(io_multipart PUBLIC io_request)
 
 io_add_test(test_io_multipart tests/unit/test_io_multipart.c io_multipart io_request)
+
+# ============================================================================
+# Sprint 5: SPA fallback
+# ============================================================================
+
+add_library(io_spa STATIC src/static/io_spa.c)
+target_include_directories(io_spa PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_spa PUBLIC io_static io_request io_response)
+
+io_add_test(test_io_spa tests/unit/test_io_spa.c io_spa io_static io_request io_response)
+
+# ============================================================================
+# Sprint 5: Compression
+# ============================================================================
+
+# Check for optional compression libraries
+pkg_check_modules(ZLIB zlib)
+pkg_check_modules(BROTLI_ENC libbrotlienc)
+
+add_library(io_compress STATIC src/static/io_compress.c)
+target_include_directories(io_compress PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_compress PUBLIC io_request io_response)
+
+if(ZLIB_FOUND)
+    target_compile_definitions(io_compress PRIVATE IOHTTP_HAVE_ZLIB)
+    target_include_directories(io_compress PRIVATE ${ZLIB_INCLUDE_DIRS})
+    target_link_libraries(io_compress PRIVATE ${ZLIB_LIBRARIES})
+endif()
+
+if(BROTLI_ENC_FOUND)
+    target_compile_definitions(io_compress PRIVATE IOHTTP_HAVE_BROTLI)
+    target_include_directories(io_compress PRIVATE ${BROTLI_ENC_INCLUDE_DIRS})
+    target_link_libraries(io_compress PRIVATE ${BROTLI_ENC_LIBRARIES})
+endif()
+
+io_add_test(test_io_compress tests/unit/test_io_compress.c io_compress io_request io_response)
+if(ZLIB_FOUND)
+    target_compile_definitions(test_io_compress PRIVATE IOHTTP_HAVE_ZLIB)
+endif()
+if(BROTLI_ENC_FOUND)
+    target_compile_definitions(test_io_compress PRIVATE IOHTTP_HAVE_BROTLI)
+endif()
