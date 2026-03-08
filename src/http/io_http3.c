@@ -75,6 +75,7 @@ struct io_http3_session {
     io_http3_on_request_fn on_request;
     void *user_data;
     bool shutdown_initiated;
+    bool control_streams_bound;
 };
 
 /* ---- Helpers ---- */
@@ -110,8 +111,8 @@ static io_method_t parse_method(const char *method, size_t len)
 
 /* ---- nghttp3 callbacks ---- */
 
-static int h3_begin_headers_cb(nghttp3_conn *conn, int64_t stream_id,
-                                void *conn_user_data, void *stream_user_data)
+static int h3_begin_headers_cb(nghttp3_conn *conn, int64_t stream_id, void *conn_user_data,
+                               void *stream_user_data)
 {
     (void)conn;
     (void)conn_user_data;
@@ -135,8 +136,8 @@ static int h3_begin_headers_cb(nghttp3_conn *conn, int64_t stream_id,
 }
 
 static int h3_recv_header_cb(nghttp3_conn *conn, int64_t stream_id, int32_t token,
-                              nghttp3_rcbuf *name, nghttp3_rcbuf *value, uint8_t flags,
-                              void *conn_user_data, void *stream_user_data)
+                             nghttp3_rcbuf *name, nghttp3_rcbuf *value, uint8_t flags,
+                             void *conn_user_data, void *stream_user_data)
 {
     (void)conn;
     (void)stream_id;
@@ -205,8 +206,7 @@ static int h3_recv_header_cb(nghttp3_conn *conn, int64_t stream_id, int32_t toke
                 }
                 size_t next;
                 if (ckd_mul(&next, req->content_length, 10) ||
-                    ckd_add(&req->content_length, next,
-                            (size_t)(val_vec.base[i] - '0'))) {
+                    ckd_add(&req->content_length, next, (size_t)(val_vec.base[i] - '0'))) {
                     return NGHTTP3_ERR_CALLBACK_FAILURE;
                 }
             }
@@ -216,8 +216,8 @@ static int h3_recv_header_cb(nghttp3_conn *conn, int64_t stream_id, int32_t toke
     return 0;
 }
 
-static int h3_end_headers_cb(nghttp3_conn *conn, int64_t stream_id, int fin,
-                              void *conn_user_data, void *stream_user_data)
+static int h3_end_headers_cb(nghttp3_conn *conn, int64_t stream_id, int fin, void *conn_user_data,
+                             void *stream_user_data)
 {
     (void)conn;
     (void)stream_id;
@@ -234,7 +234,7 @@ static int h3_end_headers_cb(nghttp3_conn *conn, int64_t stream_id, int fin,
 }
 
 static int h3_recv_data_cb(nghttp3_conn *conn, int64_t stream_id, const uint8_t *data,
-                            size_t datalen, void *conn_user_data, void *stream_user_data)
+                           size_t datalen, void *conn_user_data, void *stream_user_data)
 {
     (void)conn;
     (void)stream_id;
@@ -268,7 +268,7 @@ static int h3_recv_data_cb(nghttp3_conn *conn, int64_t stream_id, const uint8_t 
 }
 
 static int h3_end_stream_cb(nghttp3_conn *conn, int64_t stream_id, void *conn_user_data,
-                             void *stream_user_data)
+                            void *stream_user_data)
 {
     (void)conn;
 
@@ -299,9 +299,8 @@ static int h3_end_stream_cb(nghttp3_conn *conn, int64_t stream_id, void *conn_us
     return 0;
 }
 
-static int h3_stream_close_cb(nghttp3_conn *conn, int64_t stream_id,
-                                uint64_t app_error_code, void *conn_user_data,
-                                void *stream_user_data)
+static int h3_stream_close_cb(nghttp3_conn *conn, int64_t stream_id, uint64_t app_error_code,
+                              void *conn_user_data, void *stream_user_data)
 {
     (void)conn;
     (void)stream_id;
@@ -315,7 +314,7 @@ static int h3_stream_close_cb(nghttp3_conn *conn, int64_t stream_id,
 }
 
 static int h3_deferred_consume_cb(nghttp3_conn *conn, int64_t stream_id, size_t consumed,
-                                   void *conn_user_data, void *stream_user_data)
+                                  void *conn_user_data, void *stream_user_data)
 {
     (void)conn;
     (void)stream_id;
@@ -337,10 +336,9 @@ typedef struct {
     size_t offset;
 } h3_resp_data_t;
 
-static nghttp3_ssize resp_data_read_cb(nghttp3_conn *conn, int64_t stream_id,
-                                        nghttp3_vec *vec, size_t veccnt,
-                                        uint32_t *pflags,
-                                        void *conn_user_data, void *stream_user_data)
+static nghttp3_ssize resp_data_read_cb(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec,
+                                       size_t veccnt, uint32_t *pflags, void *conn_user_data,
+                                       void *stream_user_data)
 {
     (void)conn;
     (void)stream_id;
@@ -389,9 +387,8 @@ void io_http3_config_init(io_http3_config_t *cfg)
     };
 }
 
-io_http3_session_t *io_http3_session_create(const io_http3_config_t *cfg,
-                                             io_quic_conn_t *quic_conn,
-                                             io_http3_on_request_fn on_req, void *user_data)
+io_http3_session_t *io_http3_session_create(const io_http3_config_t *cfg, io_quic_conn_t *quic_conn,
+                                            io_http3_on_request_fn on_req, void *user_data)
 {
     if (quic_conn == nullptr) {
         return nullptr;
@@ -431,12 +428,19 @@ io_http3_session_t *io_http3_session_create(const io_http3_config_t *cfg,
     settings.qpack_max_dtable_capacity = session->config.qpack_max_dtable_capacity;
     settings.qpack_blocked_streams = session->config.qpack_blocked_streams;
 
-    int rv = nghttp3_conn_server_new(&session->ng_conn, &callbacks, &settings, nullptr,
-                                     session);
+    int rv = nghttp3_conn_server_new(&session->ng_conn, &callbacks, &settings, nullptr, session);
     if (rv != 0) {
         free(session);
         return nullptr;
     }
+
+    /* Try to bind HTTP/3 control streams (control, QPACK encoder, QPACK decoder).
+     * The server must open 3 unidirectional QUIC streams and bind them to
+     * the nghttp3 connection. This may fail if QUIC handshake is not yet
+     * complete (peer hasn't granted uni stream credits). In that case,
+     * binding is deferred — call io_http3_bind_control_streams() after
+     * handshake completes. */
+    (void)io_http3_bind_control_streams(session);
 
     return session;
 }
@@ -452,8 +456,41 @@ void io_http3_session_destroy(io_http3_session_t *session)
     free(session);
 }
 
-int io_http3_on_stream_data(io_http3_session_t *session, int64_t stream_id,
-                             const uint8_t *data, size_t len, bool fin)
+int io_http3_bind_control_streams(io_http3_session_t *session)
+{
+    if (session == nullptr) {
+        return -EINVAL;
+    }
+    if (session->control_streams_bound) {
+        return 0;
+    }
+
+    int64_t ctrl_stream_id;
+    int64_t qenc_stream_id;
+    int64_t qdec_stream_id;
+
+    if (io_quic_open_uni_stream(session->quic_conn, &ctrl_stream_id) != 0 ||
+        io_quic_open_uni_stream(session->quic_conn, &qenc_stream_id) != 0 ||
+        io_quic_open_uni_stream(session->quic_conn, &qdec_stream_id) != 0) {
+        return -EAGAIN;
+    }
+
+    int rv = nghttp3_conn_bind_control_stream(session->ng_conn, ctrl_stream_id);
+    if (rv != 0) {
+        return -EIO;
+    }
+
+    rv = nghttp3_conn_bind_qpack_streams(session->ng_conn, qenc_stream_id, qdec_stream_id);
+    if (rv != 0) {
+        return -EIO;
+    }
+
+    session->control_streams_bound = true;
+    return 0;
+}
+
+int io_http3_on_stream_data(io_http3_session_t *session, int64_t stream_id, const uint8_t *data,
+                            size_t len, bool fin)
 {
     if (session == nullptr) {
         return -EINVAL;
@@ -483,7 +520,7 @@ int io_http3_on_stream_open(io_http3_session_t *session, int64_t stream_id)
 }
 
 int io_http3_submit_response(io_http3_session_t *session, int64_t stream_id,
-                              const io_response_t *resp)
+                             const io_response_t *resp)
 {
     if (session == nullptr || resp == nullptr) {
         return -EINVAL;
@@ -553,11 +590,9 @@ int io_http3_submit_response(io_http3_session_t *session, int64_t stream_id,
         nghttp3_data_reader dr = {
             .read_data = resp_data_read_cb,
         };
-        rv = nghttp3_conn_submit_response(session->ng_conn, stream_id, nva, nva_count,
-                                           &dr);
+        rv = nghttp3_conn_submit_response(session->ng_conn, stream_id, nva, nva_count, &dr);
     } else {
-        rv = nghttp3_conn_submit_response(session->ng_conn, stream_id, nva, nva_count,
-                                           nullptr);
+        rv = nghttp3_conn_submit_response(session->ng_conn, stream_id, nva, nva_count, nullptr);
     }
 
     /* Free temporary lowercase name copies */
@@ -586,9 +621,13 @@ int io_http3_shutdown(io_http3_session_t *session)
         return -EINVAL;
     }
 
-    int rv = nghttp3_conn_shutdown(session->ng_conn);
-    if (rv != 0) {
-        return -EIO;
+    /* nghttp3_conn_shutdown requires control streams to be bound.
+     * If not yet bound, just mark shutdown and skip the GOAWAY. */
+    if (session->control_streams_bound) {
+        int rv = nghttp3_conn_shutdown(session->ng_conn);
+        if (rv != 0) {
+            return -EIO;
+        }
     }
 
     session->shutdown_initiated = true;

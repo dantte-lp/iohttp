@@ -10,11 +10,11 @@
 #ifndef IOHTTP_HTTP_QUIC_H
 #define IOHTTP_HTTP_QUIC_H
 
+#include <netinet/in.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
-#include <netinet/in.h>
 
 /* ---- Forward declaration (opaque) ---- */
 
@@ -23,13 +23,13 @@ typedef struct io_quic_conn io_quic_conn_t;
 /* ---- Configuration ---- */
 
 typedef struct {
-    uint32_t max_streams_bidi;      /* default 100 */
-    uint32_t max_stream_data_bidi;  /* per-stream flow control, default 256 KiB */
-    uint32_t max_data;              /* connection-level flow control, default 1 MiB */
-    uint32_t idle_timeout_ms;       /* default 30000 */
-    uint32_t max_udp_payload;       /* default 1200 (initial), grows after handshake */
-    const char *cert_file;          /* TLS certificate */
-    const char *key_file;           /* TLS private key */
+    uint32_t max_streams_bidi;     /* default 100 */
+    uint32_t max_stream_data_bidi; /* per-stream flow control, default 256 KiB */
+    uint32_t max_data;             /* connection-level flow control, default 1 MiB */
+    uint32_t idle_timeout_ms;      /* default 30000 */
+    uint32_t max_udp_payload;      /* default 1200 (initial), grows after handshake */
+    const char *cert_file;         /* TLS certificate */
+    const char *key_file;          /* TLS private key */
 } io_quic_config_t;
 
 /* ---- Callback types ---- */
@@ -44,9 +44,8 @@ typedef struct {
  * @param user_data User context from io_quic_conn_create().
  * @return 0 on success, negative errno on failure.
  */
-typedef int (*io_quic_stream_data_fn)(io_quic_conn_t *conn, int64_t stream_id,
-                                       const uint8_t *data, size_t len,
-                                       bool fin, void *user_data);
+typedef int (*io_quic_stream_data_fn)(io_quic_conn_t *conn, int64_t stream_id, const uint8_t *data,
+                                      size_t len, bool fin, void *user_data);
 
 /**
  * @brief Called when a new stream is opened by the peer.
@@ -55,8 +54,7 @@ typedef int (*io_quic_stream_data_fn)(io_quic_conn_t *conn, int64_t stream_id,
  * @param user_data User context.
  * @return 0 on success, negative errno to reject.
  */
-typedef int (*io_quic_stream_open_fn)(io_quic_conn_t *conn, int64_t stream_id,
-                                       void *user_data);
+typedef int (*io_quic_stream_open_fn)(io_quic_conn_t *conn, int64_t stream_id, void *user_data);
 
 /**
  * @brief Called when the QUIC handshake completes.
@@ -97,13 +95,10 @@ void io_quic_config_init(io_quic_config_t *cfg);
  * @param user_data Passed to callbacks.
  * @return New connection, or nullptr on failure.
  */
-[[nodiscard]] io_quic_conn_t *io_quic_conn_create(const io_quic_config_t *cfg,
-                                                    const io_quic_callbacks_t *cbs,
-                                                    const uint8_t *dcid, size_t dcid_len,
-                                                    const uint8_t *scid, size_t scid_len,
-                                                    const struct sockaddr *local,
-                                                    const struct sockaddr *remote,
-                                                    void *user_data);
+[[nodiscard]] io_quic_conn_t *
+io_quic_conn_create(const io_quic_config_t *cfg, const io_quic_callbacks_t *cbs,
+                    const uint8_t *dcid, size_t dcid_len, const uint8_t *scid, size_t scid_len,
+                    const struct sockaddr *local, const struct sockaddr *remote, void *user_data);
 
 /**
  * @brief Destroy a QUIC connection and free all resources.
@@ -121,7 +116,7 @@ void io_quic_conn_destroy(io_quic_conn_t *conn);
  * @return 0 on success, negative errno on error.
  */
 [[nodiscard]] int io_quic_on_recv(io_quic_conn_t *conn, const uint8_t *data, size_t len,
-                                   const struct sockaddr *remote);
+                                  const struct sockaddr *remote);
 
 /**
  * @brief Get pending output datagrams to send.
@@ -130,8 +125,7 @@ void io_quic_conn_destroy(io_quic_conn_t *conn);
  * @param out_len  Set to output length.
  * @return 0 on success (may set out_len=0), negative errno on error.
  */
-[[nodiscard]] int io_quic_flush(io_quic_conn_t *conn, const uint8_t **out_data,
-                                 size_t *out_len);
+[[nodiscard]] int io_quic_flush(io_quic_conn_t *conn, const uint8_t **out_data, size_t *out_len);
 
 /**
  * @brief Handle timer expiration (retransmission, loss detection).
@@ -150,7 +144,7 @@ void io_quic_conn_destroy(io_quic_conn_t *conn);
  * @return Bytes written (>= 0), negative errno on error.
  */
 [[nodiscard]] ssize_t io_quic_write_stream(io_quic_conn_t *conn, int64_t stream_id,
-                                            const uint8_t *data, size_t len, bool fin);
+                                           const uint8_t *data, size_t len, bool fin);
 
 /* ---- State queries ---- */
 
@@ -165,6 +159,14 @@ void io_quic_conn_destroy(io_quic_conn_t *conn);
 
 /** @return true if there is data to flush. */
 [[nodiscard]] bool io_quic_want_write(const io_quic_conn_t *conn);
+
+/**
+ * @brief Open a local unidirectional stream.
+ * @param conn      Connection.
+ * @param stream_id Set to the new stream ID on success.
+ * @return 0 on success, negative errno on error.
+ */
+[[nodiscard]] int io_quic_open_uni_stream(io_quic_conn_t *conn, int64_t *stream_id);
 
 /**
  * @brief Initiate graceful QUIC connection close.

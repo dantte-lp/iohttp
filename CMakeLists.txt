@@ -732,3 +732,32 @@ target_include_directories(io_alt_svc PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(io_alt_svc PUBLIC io_response)
 
 io_add_test(test_io_alt_svc tests/unit/test_io_alt_svc.c io_alt_svc io_response)
+
+# ============================================================================
+# Sprint 10: HTTP/3 integration tests
+# ============================================================================
+
+if(BUILD_TESTING AND TARGET unity AND TARGET io_http3 AND TARGET io_quic)
+    add_executable(test_http3_server tests/integration/test_http3_server.c)
+    target_include_directories(test_http3_server PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_include_directories(test_http3_server PRIVATE
+        ${WOLFSSL_INCLUDE_DIRS} ${NGTCP2_INCLUDE_DIRS}
+        ${NGTCP2_WOLFSSL_INCLUDE_DIRS} ${NGHTTP3_INCLUDE_DIRS}
+    )
+    target_link_directories(test_http3_server PRIVATE
+        ${WOLFSSL_LIBRARY_DIRS} ${NGTCP2_LIBRARY_DIRS}
+        ${NGTCP2_WOLFSSL_LIBRARY_DIRS} ${NGHTTP3_LIBRARY_DIRS}
+    )
+    target_link_libraries(test_http3_server PRIVATE
+        unity io_http3 io_quic io_alt_svc io_request io_response io_ctx
+        ${WOLFSSL_LIBRARIES} ${NGTCP2_LIBRARIES}
+        ${NGTCP2_WOLFSSL_LIBRARIES} ${NGHTTP3_LIBRARIES}
+    )
+    target_compile_options(test_http3_server PRIVATE
+        -Wno-missing-prototypes -Wno-missing-declarations
+    )
+    target_compile_definitions(test_http3_server PRIVATE
+        TEST_CERTS_DIR="${CMAKE_SOURCE_DIR}/tests/certs"
+    )
+    add_test(NAME test_http3_server COMMAND test_http3_server)
+endif()

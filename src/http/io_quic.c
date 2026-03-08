@@ -13,11 +13,11 @@
 #include <string.h>
 #include <time.h>
 
+#include <wolfssl/options.h>
+#include <wolfssl/ssl.h>
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_wolfssl.h>
-#include <wolfssl/options.h>
-#include <wolfssl/ssl.h>
 
 /* ---- Constants ---- */
 
@@ -75,11 +75,9 @@ static socklen_t sockaddr_len(const struct sockaddr *addr)
 
 /* ---- ngtcp2 callbacks ---- */
 
-static int recv_stream_data_cb(ngtcp2_conn *conn, uint32_t flags,
-                                int64_t stream_id, uint64_t offset,
-                                const uint8_t *data, size_t datalen,
-                                void *user_data,
-                                void *stream_user_data)
+static int recv_stream_data_cb(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id,
+                               uint64_t offset, const uint8_t *data, size_t datalen,
+                               void *user_data, void *stream_user_data)
 {
     (void)conn;
     (void)offset;
@@ -91,13 +89,12 @@ static int recv_stream_data_cb(ngtcp2_conn *conn, uint32_t flags,
     }
 
     bool fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0;
-    int rc = qconn->callbacks.on_stream_data(qconn, stream_id, data, datalen,
-                                              fin, qconn->user_data);
+    int rc =
+        qconn->callbacks.on_stream_data(qconn, stream_id, data, datalen, fin, qconn->user_data);
     return (rc == 0) ? 0 : NGTCP2_ERR_CALLBACK_FAILURE;
 }
 
-static int stream_open_cb(ngtcp2_conn *conn, int64_t stream_id,
-                           void *user_data)
+static int stream_open_cb(ngtcp2_conn *conn, int64_t stream_id, void *user_data)
 {
     (void)conn;
 
@@ -106,8 +103,7 @@ static int stream_open_cb(ngtcp2_conn *conn, int64_t stream_id,
         return 0;
     }
 
-    int rc = qconn->callbacks.on_stream_open(qconn, stream_id,
-                                              qconn->user_data);
+    int rc = qconn->callbacks.on_stream_open(qconn, stream_id, qconn->user_data);
     return (rc == 0) ? 0 : NGTCP2_ERR_CALLBACK_FAILURE;
 }
 
@@ -125,17 +121,15 @@ static int handshake_completed_cb(ngtcp2_conn *conn, void *user_data)
     return 0;
 }
 
-static void rand_cb(uint8_t *dest, size_t destlen,
-                     const ngtcp2_rand_ctx *rand_ctx)
+static void rand_cb(uint8_t *dest, size_t destlen, const ngtcp2_rand_ctx *rand_ctx)
 {
     (void)rand_ctx;
     /* wolfSSL provides a good CSPRNG via wc_RNG */
     wolfSSL_RAND_bytes(dest, (int)destlen);
 }
 
-static int get_new_connection_id_cb(ngtcp2_conn *conn, ngtcp2_cid *cid,
-                                     uint8_t *token, size_t cidlen,
-                                     void *user_data)
+static int get_new_connection_id_cb(ngtcp2_conn *conn, ngtcp2_cid *cid, uint8_t *token,
+                                    size_t cidlen, void *user_data)
 {
     (void)conn;
     (void)user_data;
@@ -172,17 +166,15 @@ static int setup_wolfssl(io_quic_conn_t *qconn, const io_quic_config_t *cfg)
         return -EIO;
     }
 
-    if (wolfSSL_CTX_use_certificate_file(qconn->ssl_ctx, cfg->cert_file,
-                                          WOLFSSL_FILETYPE_PEM)
-        != WOLFSSL_SUCCESS) {
+    if (wolfSSL_CTX_use_certificate_file(qconn->ssl_ctx, cfg->cert_file, WOLFSSL_FILETYPE_PEM) !=
+        WOLFSSL_SUCCESS) {
         wolfSSL_CTX_free(qconn->ssl_ctx);
         qconn->ssl_ctx = nullptr;
         return -EIO;
     }
 
-    if (wolfSSL_CTX_use_PrivateKey_file(qconn->ssl_ctx, cfg->key_file,
-                                         WOLFSSL_FILETYPE_PEM)
-        != WOLFSSL_SUCCESS) {
+    if (wolfSSL_CTX_use_PrivateKey_file(qconn->ssl_ctx, cfg->key_file, WOLFSSL_FILETYPE_PEM) !=
+        WOLFSSL_SUCCESS) {
         wolfSSL_CTX_free(qconn->ssl_ctx);
         qconn->ssl_ctx = nullptr;
         return -EIO;
@@ -190,8 +182,7 @@ static int setup_wolfssl(io_quic_conn_t *qconn, const io_quic_config_t *cfg)
 
     /* Set ALPN for HTTP/3 */
     static const unsigned char alpn[] = "\x02h3";
-    if (wolfSSL_CTX_set_alpn_protos(qconn->ssl_ctx, alpn, sizeof(alpn) - 1)
-        != 0) {
+    if (wolfSSL_CTX_set_alpn_protos(qconn->ssl_ctx, alpn, sizeof(alpn) - 1) != 0) {
         wolfSSL_CTX_free(qconn->ssl_ctx);
         qconn->ssl_ctx = nullptr;
         return -EIO;
@@ -245,16 +236,13 @@ int io_quic_config_validate(const io_quic_config_t *cfg)
     return 0;
 }
 
-io_quic_conn_t *io_quic_conn_create(const io_quic_config_t *cfg,
-                                     const io_quic_callbacks_t *cbs,
-                                     const uint8_t *dcid, size_t dcid_len,
-                                     const uint8_t *scid, size_t scid_len,
-                                     const struct sockaddr *local,
-                                     const struct sockaddr *remote,
-                                     void *user_data)
+io_quic_conn_t *io_quic_conn_create(const io_quic_config_t *cfg, const io_quic_callbacks_t *cbs,
+                                    const uint8_t *dcid, size_t dcid_len, const uint8_t *scid,
+                                    size_t scid_len, const struct sockaddr *local,
+                                    const struct sockaddr *remote, void *user_data)
 {
-    if (cfg == nullptr || cbs == nullptr || dcid == nullptr ||
-        scid == nullptr || local == nullptr || remote == nullptr) {
+    if (cfg == nullptr || cbs == nullptr || dcid == nullptr || scid == nullptr ||
+        local == nullptr || remote == nullptr) {
         return nullptr;
     }
 
@@ -291,12 +279,9 @@ io_quic_conn_t *io_quic_conn_create(const io_quic_config_t *cfg,
     }
 
     /* Initialize path */
-    ngtcp2_path_storage_init(&qconn->ps,
-                              (const ngtcp2_sockaddr *)local,
-                              (ngtcp2_socklen)sockaddr_len(local),
-                              (const ngtcp2_sockaddr *)remote,
-                              (ngtcp2_socklen)sockaddr_len(remote),
-                              nullptr);
+    ngtcp2_path_storage_init(&qconn->ps, (const ngtcp2_sockaddr *)local,
+                             (ngtcp2_socklen)sockaddr_len(local), (const ngtcp2_sockaddr *)remote,
+                             (ngtcp2_socklen)sockaddr_len(remote), nullptr);
 
     /* Setup ngtcp2 callbacks */
     ngtcp2_callbacks callbacks = {
@@ -323,9 +308,12 @@ io_quic_conn_t *io_quic_conn_create(const io_quic_config_t *cfg,
     params.initial_max_stream_data_bidi_local = cfg->max_stream_data_bidi;
     params.initial_max_stream_data_bidi_remote = cfg->max_stream_data_bidi;
     params.initial_max_data = cfg->max_data;
-    params.max_idle_timeout =
-        (ngtcp2_duration)cfg->idle_timeout_ms * NGTCP2_MILLISECONDS;
+    params.max_idle_timeout = (ngtcp2_duration)cfg->idle_timeout_ms * NGTCP2_MILLISECONDS;
     params.max_udp_payload_size = cfg->max_udp_payload;
+
+    /* Server must echo the client's DCID as original_dcid */
+    ngtcp2_cid_init(&params.original_dcid, dcid, dcid_len);
+    params.original_dcid_present = 1;
 
     /* Settings */
     ngtcp2_settings settings;
@@ -340,10 +328,9 @@ io_quic_conn_t *io_quic_conn_create(const io_quic_config_t *cfg,
     ngtcp2_cid_init(&ns_cid, scid, scid_len);
 
     /* Create server connection */
-    int rv = ngtcp2_conn_server_new(&qconn->ngtcp2_conn, &nd_cid, &ns_cid,
-                                     &qconn->ps.path, NGTCP2_PROTO_VER_V1,
-                                     &callbacks, &settings, &params,
-                                     nullptr, qconn);
+    int rv = ngtcp2_conn_server_new(&qconn->ngtcp2_conn, &nd_cid, &ns_cid, &qconn->ps.path,
+                                    NGTCP2_PROTO_VER_V1, &callbacks, &settings, &params, nullptr,
+                                    qconn);
     if (rv != 0) {
         wolfSSL_free(qconn->ssl);
         wolfSSL_CTX_free(qconn->ssl_ctx);
@@ -377,7 +364,7 @@ void io_quic_conn_destroy(io_quic_conn_t *conn)
 }
 
 int io_quic_on_recv(io_quic_conn_t *conn, const uint8_t *data, size_t len,
-                     const struct sockaddr *remote)
+                    const struct sockaddr *remote)
 {
     if (conn == nullptr || data == nullptr || remote == nullptr) {
         return -EINVAL;
@@ -393,8 +380,7 @@ int io_quic_on_recv(io_quic_conn_t *conn, const uint8_t *data, size_t len,
     ngtcp2_pkt_info pi = {0};
     ngtcp2_tstamp ts = quic_timestamp();
 
-    int rv = ngtcp2_conn_read_pkt(conn->ngtcp2_conn, &path, &pi,
-                                   data, len, ts);
+    int rv = ngtcp2_conn_read_pkt(conn->ngtcp2_conn, &path, &pi, data, len, ts);
     if (rv != 0) {
         if (rv == NGTCP2_ERR_DRAINING) {
             conn->closed = true;
@@ -406,8 +392,7 @@ int io_quic_on_recv(io_quic_conn_t *conn, const uint8_t *data, size_t len,
     return 0;
 }
 
-int io_quic_flush(io_quic_conn_t *conn, const uint8_t **out_data,
-                   size_t *out_len)
+int io_quic_flush(io_quic_conn_t *conn, const uint8_t **out_data, size_t *out_len)
 {
     if (conn == nullptr || out_data == nullptr || out_len == nullptr) {
         return -EINVAL;
@@ -433,11 +418,10 @@ int io_quic_flush(io_quic_conn_t *conn, const uint8_t **out_data,
             conn->out_cap = new_cap;
         }
 
-        ngtcp2_ssize n = ngtcp2_conn_writev_stream(
-            conn->ngtcp2_conn, &ps.path, &pi,
-            conn->out_buf + conn->out_len, QUIC_MAX_PKTLEN,
-            nullptr, NGTCP2_WRITE_STREAM_FLAG_NONE,
-            -1, nullptr, 0, ts);
+        ngtcp2_ssize n = ngtcp2_conn_writev_stream(conn->ngtcp2_conn, &ps.path, &pi,
+                                                   conn->out_buf + conn->out_len, QUIC_MAX_PKTLEN,
+                                                   nullptr, NGTCP2_WRITE_STREAM_FLAG_NONE, -1,
+                                                   nullptr, 0, ts);
 
         if (n < 0) {
             if (n == NGTCP2_ERR_WRITE_MORE) {
@@ -480,8 +464,8 @@ int io_quic_on_timeout(io_quic_conn_t *conn)
     return 0;
 }
 
-ssize_t io_quic_write_stream(io_quic_conn_t *conn, int64_t stream_id,
-                              const uint8_t *data, size_t len, bool fin)
+ssize_t io_quic_write_stream(io_quic_conn_t *conn, int64_t stream_id, const uint8_t *data,
+                             size_t len, bool fin)
 {
     if (conn == nullptr || (data == nullptr && len > 0)) {
         return -EINVAL;
@@ -514,10 +498,9 @@ ssize_t io_quic_write_stream(io_quic_conn_t *conn, int64_t stream_id,
         flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
     }
 
-    ngtcp2_ssize n = ngtcp2_conn_writev_stream(
-        conn->ngtcp2_conn, &ps.path, &pi,
-        conn->out_buf + conn->out_len, QUIC_MAX_PKTLEN,
-        &ndatalen, flags, stream_id, &datav, 1, ts);
+    ngtcp2_ssize n = ngtcp2_conn_writev_stream(conn->ngtcp2_conn, &ps.path, &pi,
+                                               conn->out_buf + conn->out_len, QUIC_MAX_PKTLEN,
+                                               &ndatalen, flags, stream_id, &datav, 1, ts);
 
     if (n < 0) {
         return -EIO;
@@ -578,8 +561,24 @@ bool io_quic_want_write(const io_quic_conn_t *conn)
         return false;
     }
     /* There is data to write if expiry is not infinite or output is pending */
-    return conn->out_len > 0 ||
-           ngtcp2_conn_get_expiry(conn->ngtcp2_conn) != UINT64_MAX;
+    return conn->out_len > 0 || ngtcp2_conn_get_expiry(conn->ngtcp2_conn) != UINT64_MAX;
+}
+
+int io_quic_open_uni_stream(io_quic_conn_t *conn, int64_t *stream_id)
+{
+    if (conn == nullptr || stream_id == nullptr) {
+        return -EINVAL;
+    }
+    if (conn->closed || conn->ngtcp2_conn == nullptr) {
+        return -ECONNRESET;
+    }
+
+    int rv = ngtcp2_conn_open_uni_stream(conn->ngtcp2_conn, stream_id, nullptr);
+    if (rv != 0) {
+        return -EIO;
+    }
+
+    return 0;
 }
 
 int io_quic_close(io_quic_conn_t *conn, uint64_t error_code)
@@ -594,8 +593,7 @@ int io_quic_close(io_quic_conn_t *conn, uint64_t error_code)
     ngtcp2_ccerr ccerr;
     ngtcp2_ccerr_default(&ccerr);
     if (error_code != 0) {
-        ngtcp2_ccerr_set_application_error(&ccerr, error_code,
-                                            nullptr, 0);
+        ngtcp2_ccerr_set_application_error(&ccerr, error_code, nullptr, 0);
     }
 
     /* Ensure room in output buffer */
@@ -614,10 +612,9 @@ int io_quic_close(io_quic_conn_t *conn, uint64_t error_code)
     ngtcp2_path_storage_zero(&ps);
     ngtcp2_pkt_info pi;
 
-    ngtcp2_ssize n = ngtcp2_conn_write_connection_close(
-        conn->ngtcp2_conn, &ps.path, &pi,
-        conn->out_buf + conn->out_len, QUIC_MAX_PKTLEN,
-        &ccerr, ts);
+    ngtcp2_ssize n = ngtcp2_conn_write_connection_close(conn->ngtcp2_conn, &ps.path, &pi,
+                                                        conn->out_buf + conn->out_len,
+                                                        QUIC_MAX_PKTLEN, &ccerr, ts);
 
     if (n > 0) {
         conn->out_len += (size_t)n;

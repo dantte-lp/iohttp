@@ -27,9 +27,9 @@ typedef struct io_http3_session io_http3_session_t;
 /* ---- Configuration ---- */
 
 typedef struct {
-    uint32_t max_header_list_size; /* default 8192 */
+    uint32_t max_header_list_size;      /* default 8192 */
     uint32_t qpack_max_dtable_capacity; /* default 0 (no dynamic table, simpler) */
-    uint32_t qpack_blocked_streams; /* default 0 */
+    uint32_t qpack_blocked_streams;     /* default 0 */
 } io_http3_config_t;
 
 /* ---- Callback types ---- */
@@ -59,9 +59,9 @@ void io_http3_config_init(io_http3_config_t *cfg);
  * @return New session, or nullptr on failure.
  */
 [[nodiscard]] io_http3_session_t *io_http3_session_create(const io_http3_config_t *cfg,
-                                                           io_quic_conn_t *quic_conn,
-                                                           io_http3_on_request_fn on_req,
-                                                           void *user_data);
+                                                          io_quic_conn_t *quic_conn,
+                                                          io_http3_on_request_fn on_req,
+                                                          void *user_data);
 
 /**
  * @brief Destroy an HTTP/3 session and free all resources.
@@ -81,7 +81,7 @@ void io_http3_session_destroy(io_http3_session_t *session);
  * @return 0 on success, negative errno on error.
  */
 [[nodiscard]] int io_http3_on_stream_data(io_http3_session_t *session, int64_t stream_id,
-                                           const uint8_t *data, size_t len, bool fin);
+                                          const uint8_t *data, size_t len, bool fin);
 
 /**
  * @brief Notify HTTP/3 session that a new stream was opened.
@@ -99,7 +99,20 @@ void io_http3_session_destroy(io_http3_session_t *session);
  * @return 0 on success, negative errno on error.
  */
 [[nodiscard]] int io_http3_submit_response(io_http3_session_t *session, int64_t stream_id,
-                                            const io_response_t *resp);
+                                           const io_response_t *resp);
+
+/**
+ * @brief Bind HTTP/3 control streams (control, QPACK encoder/decoder).
+ *
+ * Opens 3 unidirectional QUIC streams and binds them to the nghttp3
+ * connection. Must be called after the QUIC handshake completes so that
+ * the peer has granted uni-stream credits. Safe to call multiple times
+ * (no-op if already bound).
+ *
+ * @param session HTTP/3 session.
+ * @return 0 on success, negative errno if streams cannot be opened yet.
+ */
+[[nodiscard]] int io_http3_bind_control_streams(io_http3_session_t *session);
 
 /* ---- State queries ---- */
 
