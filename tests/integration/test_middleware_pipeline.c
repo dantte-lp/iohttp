@@ -148,9 +148,8 @@ void test_middleware_custom_header(void)
     TEST_ASSERT_GREATER_THAN(0, resp_len);
     TEST_ASSERT_NOT_NULL(memmem(resp, (size_t)resp_len, "200", 3));
     TEST_ASSERT_NOT_NULL(memmem(resp, (size_t)resp_len, "Hello, World!", 13));
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "X-Custom: applied", 17),
-        "Expected X-Custom: applied header in response");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "X-Custom: applied", 17),
+                                 "Expected X-Custom: applied header in response");
 
     close(client);
     io_server_destroy(srv);
@@ -198,13 +197,11 @@ void test_middleware_short_circuit(void)
     ssize_t resp_len = recv_response(client, resp, sizeof(resp));
     TEST_ASSERT_GREATER_THAN(0, resp_len);
     TEST_ASSERT_NOT_NULL(memmem(resp, (size_t)resp_len, "204", 3));
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "X-Short-Circuit: yes", 20),
-        "Expected X-Short-Circuit header from short-circuit middleware");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "X-Short-Circuit: yes", 20),
+                                 "Expected X-Short-Circuit header from short-circuit middleware");
     /* Verify handler was NOT called (no "Hello, World!" in response) */
-    TEST_ASSERT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "Hello, World!", 13),
-        "Handler should not have been called when middleware short-circuits");
+    TEST_ASSERT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "Hello, World!", 13),
+                             "Handler should not have been called when middleware short-circuits");
 
     close(client);
     io_server_destroy(srv);
@@ -258,12 +255,10 @@ void test_middleware_chain_order(void)
     ssize_t resp_len = recv_response(client, resp, sizeof(resp));
     TEST_ASSERT_GREATER_THAN(0, resp_len);
     TEST_ASSERT_NOT_NULL(memmem(resp, (size_t)resp_len, "200", 3));
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "X-First: 1", 10),
-        "Expected X-First header from first middleware");
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "X-Second: 2", 11),
-        "Expected X-Second header from second middleware");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "X-First: 1", 10),
+                                 "Expected X-First header from first middleware");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "X-Second: 2", 11),
+                                 "Expected X-Second header from second middleware");
 
     close(client);
     io_server_destroy(srv);

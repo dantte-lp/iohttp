@@ -3,8 +3,8 @@
  * @brief End-to-end integration tests: real TCP connections through server pipeline.
  */
 
-#include "core/io_server.h"
 #include "core/io_ctx.h"
+#include "core/io_server.h"
 #include "http/io_request.h"
 #include "router/io_router.h"
 
@@ -16,8 +16,12 @@
 
 #include <unity.h>
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void)
+{
+}
+void tearDown(void)
+{
+}
 
 /* ---- Helpers ---- */
 
@@ -146,8 +150,7 @@ void test_pipeline_simple_get(void)
     ssize_t resp_len = recv_response(client, resp, sizeof(resp));
     TEST_ASSERT_GREATER_THAN(0, resp_len);
     TEST_ASSERT_NOT_NULL(memmem(resp, (size_t)resp_len, "200", 3));
-    TEST_ASSERT_NOT_NULL(
-        memmem(resp, (size_t)resp_len, "Hello, World!", 13));
+    TEST_ASSERT_NOT_NULL(memmem(resp, (size_t)resp_len, "Hello, World!", 13));
 
     close(client);
     io_server_destroy(srv);
@@ -239,9 +242,7 @@ void test_pipeline_on_request_callback(void)
 {
     io_server_t *srv = make_server();
     TEST_ASSERT_NOT_NULL(srv);
-    TEST_ASSERT_EQUAL_INT(0,
-                          io_server_set_on_request(srv, callback_handler,
-                                                   nullptr));
+    TEST_ASSERT_EQUAL_INT(0, io_server_set_on_request(srv, callback_handler, nullptr));
 
     int listen_fd = io_server_listen(srv);
     uint16_t port = get_bound_port(listen_fd);
@@ -275,9 +276,7 @@ void test_pipeline_bad_request(void)
 {
     io_server_t *srv = make_server();
     TEST_ASSERT_NOT_NULL(srv);
-    TEST_ASSERT_EQUAL_INT(0,
-                          io_server_set_on_request(srv, callback_handler,
-                                                   nullptr));
+    TEST_ASSERT_EQUAL_INT(0, io_server_set_on_request(srv, callback_handler, nullptr));
 
     int listen_fd = io_server_listen(srv);
     uint16_t port = get_bound_port(listen_fd);
@@ -307,9 +306,7 @@ void test_pipeline_client_disconnect(void)
 {
     io_server_t *srv = make_server();
     TEST_ASSERT_NOT_NULL(srv);
-    TEST_ASSERT_EQUAL_INT(0,
-                          io_server_set_on_request(srv, callback_handler,
-                                                   nullptr));
+    TEST_ASSERT_EQUAL_INT(0, io_server_set_on_request(srv, callback_handler, nullptr));
 
     int listen_fd = io_server_listen(srv);
     uint16_t port = get_bound_port(listen_fd);
@@ -320,8 +317,7 @@ void test_pipeline_client_disconnect(void)
     for (int i = 0; i < 3; i++) {
         (void)io_server_run_once(srv, 100);
     }
-    TEST_ASSERT_EQUAL_UINT32(1,
-                             io_conn_pool_active(io_server_pool(srv)));
+    TEST_ASSERT_EQUAL_UINT32(1, io_conn_pool_active(io_server_pool(srv)));
 
     close(client);
 
@@ -329,8 +325,7 @@ void test_pipeline_client_disconnect(void)
         (void)io_server_run_once(srv, 100);
     }
 
-    TEST_ASSERT_EQUAL_UINT32(0,
-                             io_conn_pool_active(io_server_pool(srv)));
+    TEST_ASSERT_EQUAL_UINT32(0, io_conn_pool_active(io_server_pool(srv)));
 
     io_server_destroy(srv);
 }

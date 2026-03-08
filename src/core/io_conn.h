@@ -47,11 +47,12 @@ typedef struct {
     size_t recv_len;      /**< bytes currently in buffer */
 
     /* ---- Send state ---- */
-    uint8_t *send_buf;    /**< pending send data */
-    size_t send_len;      /**< bytes remaining to send */
-    size_t send_offset;   /**< bytes already sent */
-    bool send_active;     /**< true if IO_OP_SEND is in-flight */
-    bool keep_alive;      /**< HTTP/1.1 keep-alive (re-arm recv after send) */
+    uint8_t *send_buf;  /**< pending send data */
+    size_t send_len;    /**< bytes remaining to send */
+    size_t send_offset; /**< bytes already sent */
+    bool send_active;   /**< true if IO_OP_SEND is in-flight */
+    bool keep_alive;    /**< HTTP/1.1 keep-alive (re-arm recv after send) */
+    bool tls_done;      /**< TLS handshake completed */
 } io_conn_t;
 
 /* ---- Opaque pool type ---- */
