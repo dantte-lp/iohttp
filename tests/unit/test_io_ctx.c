@@ -77,8 +77,8 @@ void test_ctx_set_max_values(void)
 
     /* keys must persist — use static strings */
     static const char *keys[] = {
-        "k0",  "k1",  "k2",  "k3",  "k4",  "k5",  "k6",  "k7",
-        "k8",  "k9",  "k10", "k11", "k12", "k13", "k14", "k15",
+        "k0", "k1", "k2",  "k3",  "k4",  "k5",  "k6",  "k7",
+        "k8", "k9", "k10", "k11", "k12", "k13", "k14", "k15",
     };
     int vals[IO_CTX_MAX_VALUES];
 
@@ -138,8 +138,7 @@ void test_ctx_set_with_destructor(void)
     TEST_ASSERT_NOT_NULL(data);
     *data = 42;
 
-    TEST_ASSERT_EQUAL_INT(0,
-        io_ctx_set_with_destructor(&ctx, "heap", data, free));
+    TEST_ASSERT_EQUAL_INT(0, io_ctx_set_with_destructor(&ctx, "heap", data, free));
 
     void *got = io_ctx_get(&ctx, "heap");
     TEST_ASSERT_EQUAL_PTR(data, got);
@@ -164,10 +163,8 @@ void test_ctx_reset_calls_destructors(void)
     dtor_call_count = 0;
     int v1 = 1, v2 = 2;
 
-    TEST_ASSERT_EQUAL_INT(0,
-        io_ctx_set_with_destructor(&ctx, "a", &v1, counting_dtor));
-    TEST_ASSERT_EQUAL_INT(0,
-        io_ctx_set_with_destructor(&ctx, "b", &v2, counting_dtor));
+    TEST_ASSERT_EQUAL_INT(0, io_ctx_set_with_destructor(&ctx, "a", &v1, counting_dtor));
+    TEST_ASSERT_EQUAL_INT(0, io_ctx_set_with_destructor(&ctx, "b", &v2, counting_dtor));
 
     io_ctx_reset(&ctx);
 
@@ -254,8 +251,7 @@ void test_ctx_json_sets_content_type(void)
     io_ctx_t ctx;
     TEST_ASSERT_EQUAL_INT(0, io_ctx_init(&ctx, &req, &resp, nullptr));
 
-    TEST_ASSERT_EQUAL_INT(0,
-        io_ctx_json(&ctx, 200, "{\"ok\":true}"));
+    TEST_ASSERT_EQUAL_INT(0, io_ctx_json(&ctx, 200, "{\"ok\":true}"));
 
     TEST_ASSERT_EQUAL_UINT16(200, resp.status);
 
@@ -278,8 +274,7 @@ void test_ctx_text_sets_content_type(void)
     io_ctx_t ctx;
     TEST_ASSERT_EQUAL_INT(0, io_ctx_init(&ctx, &req, &resp, nullptr));
 
-    TEST_ASSERT_EQUAL_INT(0,
-        io_ctx_text(&ctx, 200, "hello world"));
+    TEST_ASSERT_EQUAL_INT(0, io_ctx_text(&ctx, 200, "hello world"));
 
     TEST_ASSERT_EQUAL_UINT16(200, resp.status);
 
@@ -301,16 +296,14 @@ void test_ctx_redirect_sets_location(void)
     io_ctx_t ctx;
     TEST_ASSERT_EQUAL_INT(0, io_ctx_init(&ctx, &req, &resp, nullptr));
 
-    TEST_ASSERT_EQUAL_INT(0,
-        io_ctx_redirect(&ctx, 302, "https://example.com/new"));
+    TEST_ASSERT_EQUAL_INT(0, io_ctx_redirect(&ctx, 302, "https://example.com/new"));
 
     TEST_ASSERT_EQUAL_UINT16(302, resp.status);
 
     bool found = false;
     for (uint32_t i = 0; i < resp.header_count; i++) {
         if (strncasecmp(resp.headers[i].name, "Location", 8) == 0) {
-            TEST_ASSERT_EQUAL_STRING("https://example.com/new",
-                                     resp.headers[i].value);
+            TEST_ASSERT_EQUAL_STRING("https://example.com/new", resp.headers[i].value);
             found = true;
             break;
         }
@@ -336,16 +329,14 @@ void test_ctx_error_json_format(void)
     io_ctx_t ctx;
     TEST_ASSERT_EQUAL_INT(0, io_ctx_init(&ctx, &req, &resp, nullptr));
 
-    TEST_ASSERT_EQUAL_INT(0,
-        io_ctx_error(&ctx, 404, "not found"));
+    TEST_ASSERT_EQUAL_INT(0, io_ctx_error(&ctx, 404, "not found"));
 
     TEST_ASSERT_EQUAL_UINT16(404, resp.status);
 
     /* verify body is valid JSON with error and status fields */
     TEST_ASSERT_GREATER_THAN(0, resp.body_len);
     char body[512];
-    size_t copy_len = resp.body_len < sizeof(body) - 1
-                          ? resp.body_len : sizeof(body) - 1;
+    size_t copy_len = resp.body_len < sizeof(body) - 1 ? resp.body_len : sizeof(body) - 1;
     memcpy(body, resp.body, copy_len);
     body[copy_len] = '\0';
 
@@ -450,9 +441,8 @@ void test_ctx_sprintf_arena(void)
     TEST_ASSERT_EQUAL_STRING("hello world, id=42", s);
 
     /* verify it came from the arena */
-    TEST_ASSERT_TRUE(
-        (uint8_t *)s >= ctx.arena.base &&
-        (uint8_t *)s < ctx.arena.base + ctx.arena.size);
+    TEST_ASSERT_TRUE((uint8_t *)s >= ctx.arena.base &&
+                     (uint8_t *)s < ctx.arena.base + ctx.arena.size);
 
     io_ctx_destroy(&ctx);
 }

@@ -31,12 +31,12 @@ typedef struct {
 
 /* Per-route metadata for introspection and documentation */
 typedef struct {
-    const char *summary;            /* short description, e.g. "Get user by ID" */
-    const char *description;        /* longer text (nullable) */
-    const char *const *tags;        /* nullptr-terminated array, e.g. {"users", nullptr} */
-    bool deprecated;                /* route is deprecated */
-    const io_param_meta_t *params;  /* array of param descriptors */
-    uint32_t param_count;           /* number of params */
+    const char *summary;           /* short description, e.g. "Get user by ID" */
+    const char *description;       /* longer text (nullable) */
+    const char *const *tags;       /* nullptr-terminated array, e.g. {"users", nullptr} */
+    bool deprecated;               /* route is deprecated */
+    const io_param_meta_t *params; /* array of param descriptors */
+    uint32_t param_count;          /* number of params */
 } io_route_meta_t;
 
 /**

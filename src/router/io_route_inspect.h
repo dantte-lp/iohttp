@@ -15,10 +15,10 @@
 /* Route info returned during walk */
 typedef struct {
     io_method_t method;
-    const char *pattern;            /* reconstructed pattern string from trie */
+    const char *pattern; /* reconstructed pattern string from trie */
     io_handler_fn handler;
-    const io_route_opts_t *opts;    /* full route options (may be nullptr) */
-    const io_route_meta_t *meta;    /* route metadata (may be nullptr) */
+    const io_route_opts_t *opts; /* full route options (may be nullptr) */
+    const io_route_meta_t *meta; /* route metadata (may be nullptr) */
 } io_route_info_t;
 
 /* Walk callback — return 0 to continue, non-zero to stop */

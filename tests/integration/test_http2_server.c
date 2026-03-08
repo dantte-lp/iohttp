@@ -7,11 +7,11 @@
  * (no sockets) with a wolfSSL client and io_tls server.
  */
 
+#include "core/io_ctx.h"
 #include "http/io_http1.h"
 #include "http/io_http2.h"
 #include "http/io_request.h"
 #include "http/io_response.h"
-#include "core/io_ctx.h"
 #include "tls/io_tls.h"
 
 #include <errno.h>
@@ -296,8 +296,8 @@ static int h2_on_request_cb(io_ctx_t *c, int32_t stream_id, void *user_data)
     }
 
     if (ctx->has_response) {
-        (void)io_respond(c->resp, ctx->resp_status, ctx->resp_content_type,
-                         ctx->resp_body, ctx->resp_body_len);
+        (void)io_respond(c->resp, ctx->resp_status, ctx->resp_content_type, ctx->resp_body,
+                         ctx->resp_body_len);
     }
     return 0;
 }
@@ -601,8 +601,10 @@ void test_http2_full_request_via_tls(void)
 
     /* Create HTTP/2 server session with a response callback */
     const char *body = "Hello, HTTP/2!";
-    h2_test_ctx_t h2ctx = {.request_count = 0, .has_response = true,
-                           .resp_status = 200, .resp_content_type = "text/plain",
+    h2_test_ctx_t h2ctx = {.request_count = 0,
+                           .has_response = true,
+                           .resp_status = 200,
+                           .resp_content_type = "text/plain",
                            .resp_body = (const uint8_t *)body,
                            .resp_body_len = strlen(body)};
 
@@ -679,9 +681,12 @@ void test_http2_multiple_streams_via_tls(void)
 
     /* HTTP/2 session — response data is stored in the test context and copied
      * into each per-stream io_ctx_t response by the callback. */
-    h2_test_ctx_t h2ctx = {.request_count = 0, .has_response = true,
-                           .resp_status = 200, .resp_content_type = "text/plain",
-                           .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
+    h2_test_ctx_t h2ctx = {.request_count = 0,
+                           .has_response = true,
+                           .resp_status = 200,
+                           .resp_content_type = "text/plain",
+                           .resp_body = (const uint8_t *)"OK",
+                           .resp_body_len = 2};
 
     io_http2_session_t *h2_server = io_http2_session_create(nullptr, h2_on_request_cb, &h2ctx);
     TEST_ASSERT_NOT_NULL(h2_server);

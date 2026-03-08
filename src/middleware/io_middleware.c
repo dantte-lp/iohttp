@@ -25,9 +25,8 @@ static int chain_next(io_ctx_t *c)
     return mw(c, chain_next);
 }
 
-int io_chain_execute(io_ctx_t *c, io_middleware_fn *global_mw,
-                     uint32_t global_count, io_middleware_fn *group_mw, uint32_t group_count,
-                     io_handler_fn handler)
+int io_chain_execute(io_ctx_t *c, io_middleware_fn *global_mw, uint32_t global_count,
+                     io_middleware_fn *group_mw, uint32_t group_count, io_handler_fn handler)
 {
     if (!c || !handler) {
         return -EINVAL;

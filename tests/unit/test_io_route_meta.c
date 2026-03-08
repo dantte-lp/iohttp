@@ -41,12 +41,14 @@ typedef struct {
 static int collect_routes(const io_route_info_t *info, void *ctx)
 {
     walk_ctx_t *w = (walk_ctx_t *)ctx;
-    if (w->count >= 16)
+    if (w->count >= 16) {
         return -1;
+    }
     w->routes[w->count] = *info;
     size_t len = strlen(info->pattern);
-    if (len >= 256)
+    if (len >= 256) {
         len = 255;
+    }
     memcpy(w->patterns[w->count], info->pattern, len);
     w->patterns[w->count][len] = '\0';
     w->routes[w->count].pattern = w->patterns[w->count];
@@ -150,7 +152,9 @@ void test_meta_params_multiple(void)
 {
     static const io_param_meta_t params[] = {
         {.name = "id", .in = IO_PARAM_PATH, .required = true},
-        {.name = "fields", .in = IO_PARAM_QUERY, .required = false,
+        {.name = "fields",
+         .in = IO_PARAM_QUERY,
+         .required = false,
          .description = "Comma-separated field names"},
     };
     static const io_route_meta_t meta = {

@@ -170,8 +170,8 @@ static int router_add_route(io_router_t *r, io_method_t method, const char *patt
 
     /* Cast handler to void* for radix trie storage */
     const io_route_meta_t *meta = (opts != nullptr) ? opts->meta : nullptr;
-    return io_radix_insert(r->trees[method], pattern, (void *)(uintptr_t)h,
-                           (void *)(uintptr_t)opts, meta);
+    return io_radix_insert(r->trees[method], pattern, (void *)(uintptr_t)h, (void *)(uintptr_t)opts,
+                           meta);
 }
 
 static const char *method_name_for_index(uint32_t idx)

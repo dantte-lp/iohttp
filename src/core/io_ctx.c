@@ -13,8 +13,7 @@
 
 /* ---- Lifecycle ---- */
 
-int io_ctx_init(io_ctx_t *c, io_request_t *req, io_response_t *resp,
-                io_server_t *srv)
+int io_ctx_init(io_ctx_t *c, io_request_t *req, io_response_t *resp, io_server_t *srv)
 {
     if (c == nullptr || req == nullptr || resp == nullptr) {
         return -EINVAL;
@@ -78,8 +77,7 @@ int io_ctx_set(io_ctx_t *c, const char *key, void *value)
     return io_ctx_set_with_destructor(c, key, value, nullptr);
 }
 
-int io_ctx_set_with_destructor(io_ctx_t *c, const char *key, void *value,
-                               void (*dtor)(void *))
+int io_ctx_set_with_destructor(io_ctx_t *c, const char *key, void *value, void (*dtor)(void *))
 {
     if (c == nullptr || key == nullptr) {
         return -EINVAL;
@@ -235,8 +233,7 @@ int io_ctx_text(io_ctx_t *c, uint16_t status, const char *text)
         return -EINVAL;
     }
     size_t len = strnlen(text, 1024 * 1024);
-    return io_respond(c->resp, status, "text/plain",
-                      (const uint8_t *)text, len);
+    return io_respond(c->resp, status, "text/plain", (const uint8_t *)text, len);
 }
 
 int io_ctx_html(io_ctx_t *c, uint16_t status, const char *html)
@@ -245,12 +242,11 @@ int io_ctx_html(io_ctx_t *c, uint16_t status, const char *html)
         return -EINVAL;
     }
     size_t len = strnlen(html, 1024 * 1024);
-    return io_respond(c->resp, status, "text/html",
-                      (const uint8_t *)html, len);
+    return io_respond(c->resp, status, "text/html", (const uint8_t *)html, len);
 }
 
-int io_ctx_blob(io_ctx_t *c, uint16_t status, const char *content_type,
-                const uint8_t *data, size_t len)
+int io_ctx_blob(io_ctx_t *c, uint16_t status, const char *content_type, const uint8_t *data,
+                size_t len)
 {
     if (c == nullptr || c->resp == nullptr) {
         return -EINVAL;
@@ -283,8 +279,7 @@ int io_ctx_error(io_ctx_t *c, uint16_t status, const char *message)
     }
 
     char buf[512];
-    int n = snprintf(buf, sizeof(buf),
-                     "{\"error\":\"%s\",\"status\":%u}", message, status);
+    int n = snprintf(buf, sizeof(buf), "{\"error\":\"%s\",\"status\":%u}", message, status);
     if (n < 0 || (size_t)n >= sizeof(buf)) {
         return -ENOMEM;
     }

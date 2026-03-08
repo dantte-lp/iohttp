@@ -106,8 +106,7 @@ typedef struct {
  * @param handler      Final route handler.
  * @return 0 on success, negative errno on error.
  */
-[[nodiscard]] int io_chain_execute(io_ctx_t *c,
-                                   io_middleware_fn *global_mw, uint32_t global_count,
+[[nodiscard]] int io_chain_execute(io_ctx_t *c, io_middleware_fn *global_mw, uint32_t global_count,
                                    io_middleware_fn *group_mw, uint32_t group_count,
                                    io_handler_fn handler);
 

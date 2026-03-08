@@ -78,8 +78,8 @@ static int on_request_cb(io_ctx_t *c, int32_t stream_id, void *user_data)
     }
 
     if (ctx->has_response) {
-        (void)io_respond(c->resp, ctx->resp_status, ctx->resp_content_type,
-                         ctx->resp_body, ctx->resp_body_len);
+        (void)io_respond(c->resp, ctx->resp_status, ctx->resp_content_type, ctx->resp_body,
+                         ctx->resp_body_len);
     }
     return 0;
 }
@@ -289,9 +289,12 @@ void test_http2_simple_get(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true,
-                      .resp_status = 200, .resp_content_type = "text/plain",
-                      .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
+    test_ctx_t ctx = {.request_count = 0,
+                      .has_response = true,
+                      .resp_status = 200,
+                      .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"OK",
+                      .resp_body_len = 2};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -329,9 +332,12 @@ void test_http2_post_with_body(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true,
-                      .resp_status = 201, .resp_content_type = "text/plain",
-                      .resp_body = (const uint8_t *)"Created", .resp_body_len = 7};
+    test_ctx_t ctx = {.request_count = 0,
+                      .has_response = true,
+                      .resp_status = 201,
+                      .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"Created",
+                      .resp_body_len = 7};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -388,9 +394,12 @@ void test_http2_stream_multiplexing(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true,
-                      .resp_status = 200, .resp_content_type = "text/plain",
-                      .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
+    test_ctx_t ctx = {.request_count = 0,
+                      .has_response = true,
+                      .resp_status = 200,
+                      .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"OK",
+                      .resp_body_len = 2};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -427,9 +436,12 @@ void test_http2_flow_control(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true,
-                      .resp_status = 200, .resp_content_type = "text/plain",
-                      .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
+    test_ctx_t ctx = {.request_count = 0,
+                      .has_response = true,
+                      .resp_status = 200,
+                      .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"OK",
+                      .resp_body_len = 2};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -551,9 +563,12 @@ void test_http2_rst_stream(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true,
-                      .resp_status = 200, .resp_content_type = "text/plain",
-                      .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
+    test_ctx_t ctx = {.request_count = 0,
+                      .has_response = true,
+                      .resp_status = 200,
+                      .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"OK",
+                      .resp_body_len = 2};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
