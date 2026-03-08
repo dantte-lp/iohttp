@@ -412,7 +412,7 @@ add_library(io_route_inspect STATIC src/router/io_route_inspect.c)
 target_include_directories(io_route_inspect PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(io_route_inspect PUBLIC io_router io_radix)
 
-io_add_test(test_io_route_inspect tests/unit/test_io_route_inspect.c io_route_inspect io_router io_route_group io_radix io_request io_response io_ctx)
+io_add_test(test_io_route_inspect tests/unit/test_io_route_inspect.c io_route_inspect io_route_meta io_router io_route_group io_radix io_request io_response io_ctx)
 
 # ============================================================================
 # Sprint 9: Route metadata
@@ -420,6 +420,8 @@ io_add_test(test_io_route_inspect tests/unit/test_io_route_inspect.c io_route_in
 
 add_library(io_route_meta STATIC src/router/io_route_meta.c)
 target_include_directories(io_route_meta PUBLIC ${CMAKE_SOURCE_DIR}/src)
+
+io_add_test(test_io_route_meta tests/unit/test_io_route_meta.c io_route_meta io_route_inspect io_router io_radix io_request io_response io_ctx)
 
 # ============================================================================
 # Sprint 4: Middleware chain
