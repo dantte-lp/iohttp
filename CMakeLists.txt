@@ -249,6 +249,16 @@ target_link_libraries(io_server PUBLIC io_loop io_conn)
 io_add_test(test_io_server tests/unit/test_io_server.c io_server io_loop io_conn)
 
 # ============================================================================
+# Sprint 8: Unified request context
+# ============================================================================
+
+add_library(io_ctx STATIC src/core/io_ctx.c)
+target_include_directories(io_ctx PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_ctx PUBLIC io_request io_response)
+
+io_add_test(test_io_ctx tests/unit/test_io_ctx.c io_ctx io_request io_response)
+
+# ============================================================================
 # Sprint 1: Buffer pool management
 # ============================================================================
 
