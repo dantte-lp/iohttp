@@ -13,8 +13,12 @@
 
 #include <unity.h>
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void)
+{
+}
+void tearDown(void)
+{
+}
 
 /* ---- Config tests ---- */
 
@@ -175,7 +179,7 @@ void test_loop_linked_timeout_fires(void)
     /* SQE 2: linked timeout — 50ms */
     sqe = io_uring_get_sqe(ring);
     TEST_ASSERT_NOT_NULL(sqe);
-    struct __kernel_timespec ts = { .tv_sec = 0, .tv_nsec = 50000000LL };
+    struct __kernel_timespec ts = {.tv_sec = 0, .tv_nsec = 50000000LL};
     io_uring_prep_link_timeout(sqe, &ts, 0);
     io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(1, IO_OP_TIMEOUT));
 
@@ -215,7 +219,7 @@ void test_loop_linked_timeout_no_fire(void)
 
     sqe = io_uring_get_sqe(ring);
     TEST_ASSERT_NOT_NULL(sqe);
-    struct __kernel_timespec ts = { .tv_sec = 5, .tv_nsec = 0 };
+    struct __kernel_timespec ts = {.tv_sec = 5, .tv_nsec = 0};
     io_uring_prep_link_timeout(sqe, &ts, 0);
     io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(2, IO_OP_TIMEOUT));
 
@@ -300,8 +304,8 @@ void test_loop_register_buffers(void)
     char buf1[4096];
     char buf2[4096];
     struct iovec iovs[2] = {
-        { .iov_base = buf1, .iov_len = sizeof(buf1) },
-        { .iov_base = buf2, .iov_len = sizeof(buf2) },
+        {.iov_base = buf1, .iov_len = sizeof(buf1)},
+        {.iov_base = buf2, .iov_len = sizeof(buf2)},
     };
 
     int ret = io_loop_register_buffers(loop, iovs, 2);

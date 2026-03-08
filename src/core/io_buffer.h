@@ -104,14 +104,12 @@ uint8_t *io_bufpool_get_reg_buf(io_bufpool_t *pool, uint32_t idx);
  * @brief Allocate a slot and register fd.
  * @return Slot index (>= 0) on success, negative errno on error.
  */
-[[nodiscard]] int io_bufpool_register_fd(io_bufpool_t *pool,
-                                          struct io_uring *ring, int fd);
+[[nodiscard]] int io_bufpool_register_fd(io_bufpool_t *pool, struct io_uring *ring, int fd);
 
 /**
  * @brief Unregister fd from its slot.
  */
-void io_bufpool_unregister_fd(io_bufpool_t *pool, struct io_uring *ring,
-                               int slot);
+void io_bufpool_unregister_fd(io_bufpool_t *pool, struct io_uring *ring, int slot);
 
 /* ---- Stats ---- */
 

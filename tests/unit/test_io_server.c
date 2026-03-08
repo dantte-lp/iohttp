@@ -14,8 +14,12 @@
 
 #include <unity.h>
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void)
+{
+}
+void tearDown(void)
+{
+}
 
 /* ---- Helpers ---- */
 
@@ -25,8 +29,9 @@ static io_server_config_t make_config(uint16_t port, uint32_t max_conns)
     io_server_config_init(&cfg);
     cfg.listen_addr = "127.0.0.1";
     cfg.listen_port = port;
-    if (max_conns > 0)
+    if (max_conns > 0) {
         cfg.max_connections = max_conns;
+    }
     return cfg;
 }
 

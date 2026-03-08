@@ -32,8 +32,9 @@ struct io_server {
 
 void io_server_config_init(io_server_config_t *cfg)
 {
-    if (cfg == nullptr)
+    if (cfg == nullptr) {
         return;
+    }
 
     memset(cfg, 0, sizeof(*cfg));
     cfg->listen_addr = "0.0.0.0";
@@ -50,28 +51,34 @@ void io_server_config_init(io_server_config_t *cfg)
 
 int io_server_config_validate(const io_server_config_t *cfg)
 {
-    if (cfg == nullptr)
+    if (cfg == nullptr) {
         return -EINVAL;
-    if (cfg->listen_port == 0)
+    }
+    if (cfg->listen_port == 0) {
         return -EINVAL;
-    if (cfg->max_connections == 0)
+    }
+    if (cfg->max_connections == 0) {
         return -EINVAL;
+    }
     return 0;
 }
 
 io_server_t *io_server_create(const io_server_config_t *cfg)
 {
-    if (cfg == nullptr)
+    if (cfg == nullptr) {
         return nullptr;
-    if (io_server_config_validate(cfg) != 0)
+    }
+    if (io_server_config_validate(cfg) != 0) {
         return nullptr;
+    }
 
     /* Ignore SIGPIPE — mandatory for wolfSSL and network I/O */
     signal(SIGPIPE, SIG_IGN);
 
     io_server_t *srv = calloc(1, sizeof(*srv));
-    if (srv == nullptr)
+    if (srv == nullptr) {
         return nullptr;
+    }
 
     srv->config = *cfg;
     srv->listen_fd = -1;
@@ -103,8 +110,9 @@ io_server_t *io_server_create(const io_server_config_t *cfg)
 
 void io_server_destroy(io_server_t *srv)
 {
-    if (srv == nullptr)
+    if (srv == nullptr) {
         return;
+    }
 
     if (srv->listen_fd >= 0) {
         close(srv->listen_fd);
@@ -120,22 +128,25 @@ void io_server_destroy(io_server_t *srv)
 
 io_loop_t *io_server_loop(io_server_t *srv)
 {
-    if (srv == nullptr)
+    if (srv == nullptr) {
         return nullptr;
+    }
     return srv->loop;
 }
 
 io_conn_pool_t *io_server_pool(io_server_t *srv)
 {
-    if (srv == nullptr)
+    if (srv == nullptr) {
         return nullptr;
+    }
     return srv->pool;
 }
 
 int io_server_listen_fd(const io_server_t *srv)
 {
-    if (srv == nullptr)
+    if (srv == nullptr) {
         return -1;
+    }
     return srv->listen_fd;
 }
 
@@ -145,8 +156,9 @@ static int arm_multishot_accept(io_server_t *srv)
 {
     struct io_uring *ring = io_loop_ring(srv->loop);
     struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-    if (sqe == nullptr)
+    if (sqe == nullptr) {
         return -ENOSPC;
+    }
 
     io_uring_prep_multishot_accept(sqe, srv->listen_fd, nullptr, nullptr, 0);
     io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(0, IO_OP_ACCEPT));
@@ -159,15 +171,18 @@ static int arm_multishot_accept(io_server_t *srv)
 
 int io_server_listen(io_server_t *srv)
 {
-    if (srv == nullptr)
+    if (srv == nullptr) {
         return -EINVAL;
-    if (srv->listening)
+    }
+    if (srv->listening) {
         return -EALREADY;
+    }
 
     /* Create TCP socket */
     int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (fd < 0)
+    if (fd < 0) {
         return -errno;
+    }
 
     /* SO_REUSEADDR */
     int optval = 1;
@@ -229,17 +244,20 @@ int io_server_listen(io_server_t *srv)
 
 int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
 {
-    if (srv == nullptr)
+    if (srv == nullptr) {
         return -EINVAL;
-    if (srv->stopped)
+    }
+    if (srv->stopped) {
         return 0;
+    }
 
     struct io_uring *ring = io_loop_ring(srv->loop);
 
     /* Submit any pending SQEs */
     int ret = io_uring_submit(ring);
-    if (ret < 0)
+    if (ret < 0) {
         return ret;
+    }
 
     /* Wait for at least one completion */
     struct io_uring_cqe *cqe;
@@ -254,8 +272,9 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
         ret = io_uring_wait_cqe(ring, &cqe);
     }
 
-    if (ret < 0)
+    if (ret < 0) {
         return ret;
+    }
 
     /* Process all available CQEs */
     int processed = 0;
@@ -300,16 +319,18 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
 
 void io_server_stop(io_server_t *srv)
 {
-    if (srv == nullptr)
+    if (srv == nullptr) {
         return;
+    }
     srv->stopped = true;
     io_loop_stop(srv->loop);
 }
 
 int io_server_shutdown(io_server_t *srv, io_shutdown_mode_t mode)
 {
-    if (srv == nullptr)
+    if (srv == nullptr) {
         return -EINVAL;
+    }
 
     srv->stopped = true;
 
@@ -319,10 +340,8 @@ int io_server_shutdown(io_server_t *srv, io_shutdown_mode_t mode)
             struct io_uring *ring = io_loop_ring(srv->loop);
             struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
             if (sqe != nullptr) {
-                io_uring_prep_cancel64(
-                    sqe, IO_ENCODE_USERDATA(0, IO_OP_ACCEPT), 0);
-                io_uring_sqe_set_data64(
-                    sqe, IO_ENCODE_USERDATA(0, IO_OP_CANCEL));
+                io_uring_prep_cancel64(sqe, IO_ENCODE_USERDATA(0, IO_OP_ACCEPT), 0);
+                io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(0, IO_OP_CANCEL));
             }
             srv->accepting = false;
         }

@@ -111,8 +111,7 @@ io_bufpool_t *io_bufpool_create(const io_bufpool_config_t *cfg)
         }
 
         for (uint32_t i = 0; i < cfg->reg_buf_count; i++) {
-            pool->reg_iovs[i].iov_base =
-                pool->reg_buf_base + ((size_t)i * cfg->reg_buf_size);
+            pool->reg_iovs[i].iov_base = pool->reg_buf_base + ((size_t)i * cfg->reg_buf_size);
             pool->reg_iovs[i].iov_len = cfg->reg_buf_size;
         }
     }
@@ -128,8 +127,7 @@ void io_bufpool_destroy(io_bufpool_t *pool, struct io_uring *ring)
 
     /* Free provided buffer ring */
     if (pool->ring_registered && pool->buf_ring != nullptr && ring != nullptr) {
-        io_uring_free_buf_ring(ring, pool->buf_ring,
-                               pool->config.ring_size, pool->config.bgid);
+        io_uring_free_buf_ring(ring, pool->buf_ring, pool->config.ring_size, pool->config.bgid);
     }
     free(pool->buf_base);
 
@@ -161,21 +159,17 @@ int io_bufpool_register_ring(io_bufpool_t *pool, struct io_uring *ring)
     }
 
     int err = 0;
-    struct io_uring_buf_ring *br = io_uring_setup_buf_ring(
-        ring, pool->config.ring_size, pool->config.bgid, 0, &err);
+    struct io_uring_buf_ring *br =
+        io_uring_setup_buf_ring(ring, pool->config.ring_size, pool->config.bgid, 0, &err);
     if (br == nullptr) {
         return err;
     }
 
     /* Add all buffers to the ring */
     for (uint32_t i = 0; i < pool->config.ring_size; i++) {
-        io_uring_buf_ring_add(
-            br,
-            pool->buf_base + ((size_t)i * pool->config.buf_size),
-            pool->config.buf_size,
-            (unsigned short)i,
-            io_uring_buf_ring_mask(pool->config.ring_size),
-            (int)i);
+        io_uring_buf_ring_add(br, pool->buf_base + ((size_t)i * pool->config.buf_size),
+                              pool->config.buf_size, (unsigned short)i,
+                              io_uring_buf_ring_mask(pool->config.ring_size), (int)i);
     }
     io_uring_buf_ring_advance(br, (int)pool->config.ring_size);
 
@@ -197,8 +191,7 @@ int io_bufpool_register_bufs(io_bufpool_t *pool, struct io_uring *ring)
         return -EALREADY;
     }
 
-    int ret = io_uring_register_buffers(ring, pool->reg_iovs,
-                                         pool->config.reg_buf_count);
+    int ret = io_uring_register_buffers(ring, pool->reg_iovs, pool->config.reg_buf_count);
     if (ret < 0) {
         return ret;
     }
@@ -219,8 +212,7 @@ int io_bufpool_register_files(io_bufpool_t *pool, struct io_uring *ring)
         return -EALREADY;
     }
 
-    pool->file_slots = malloc(pool->config.reg_file_count *
-                              sizeof(*pool->file_slots));
+    pool->file_slots = malloc(pool->config.reg_file_count * sizeof(*pool->file_slots));
     if (pool->file_slots == nullptr) {
         return -ENOMEM;
     }
@@ -230,8 +222,7 @@ int io_bufpool_register_files(io_bufpool_t *pool, struct io_uring *ring)
         pool->file_slots[i] = -1;
     }
 
-    int ret = io_uring_register_files(ring, pool->file_slots,
-                                       pool->config.reg_file_count);
+    int ret = io_uring_register_files(ring, pool->file_slots, pool->config.reg_file_count);
     if (ret < 0) {
         free(pool->file_slots);
         pool->file_slots = nullptr;
@@ -264,13 +255,9 @@ void io_bufpool_return_buf(io_bufpool_t *pool, uint32_t buf_id)
         return;
     }
 
-    io_uring_buf_ring_add(
-        pool->buf_ring,
-        pool->buf_base + ((size_t)buf_id * pool->config.buf_size),
-        pool->config.buf_size,
-        (unsigned short)buf_id,
-        io_uring_buf_ring_mask(pool->config.ring_size),
-        0);
+    io_uring_buf_ring_add(pool->buf_ring, pool->buf_base + ((size_t)buf_id * pool->config.buf_size),
+                          pool->config.buf_size, (unsigned short)buf_id,
+                          io_uring_buf_ring_mask(pool->config.ring_size), 0);
     io_uring_buf_ring_advance(pool->buf_ring, 1);
 }
 
@@ -322,8 +309,7 @@ int io_bufpool_register_fd(io_bufpool_t *pool, struct io_uring *ring, int fd)
     return slot;
 }
 
-void io_bufpool_unregister_fd(io_bufpool_t *pool, struct io_uring *ring,
-                               int slot)
+void io_bufpool_unregister_fd(io_bufpool_t *pool, struct io_uring *ring, int slot)
 {
     if (pool == nullptr || ring == nullptr) {
         return;

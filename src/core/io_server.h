@@ -6,10 +6,10 @@
 #ifndef IOHTTP_CORE_SERVER_H
 #define IOHTTP_CORE_SERVER_H
 
-#include "core/io_conn.h"
-#include "core/io_loop.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include "core/io_conn.h"
+#include "core/io_loop.h"
 
 /* ---- Server configuration ---- */
 

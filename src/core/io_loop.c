@@ -118,8 +118,7 @@ void io_loop_destroy(io_loop_t *loop)
 
     /* Free provided buffer ring if set up */
     if (loop->buf_ring != nullptr) {
-        io_uring_free_buf_ring(&loop->ring, loop->buf_ring,
-                               loop->buf_count, loop->buf_bgid);
+        io_uring_free_buf_ring(&loop->ring, loop->buf_ring, loop->buf_count, loop->buf_bgid);
         free(loop->buf_base);
         loop->buf_ring = nullptr;
         loop->buf_base = nullptr;
@@ -206,7 +205,8 @@ int io_loop_run_once(io_loop_t *loop, uint32_t timeout_ms)
     /* Process all available CQEs */
     int processed = 0;
     unsigned head;
-    io_uring_for_each_cqe(&loop->ring, head, cqe) {
+    io_uring_for_each_cqe(&loop->ring, head, cqe)
+    {
         uint64_t ud = io_uring_cqe_get_data64(cqe);
         uint8_t op = IO_DECODE_OP(ud);
 
@@ -216,8 +216,7 @@ int io_loop_run_once(io_loop_t *loop, uint32_t timeout_ms)
                 /* Timer fired (res == -ETIME) or was cancelled (res == -ECANCELED) */
                 if (cqe->res == -ETIME || cqe->res == 0) {
                     if (loop->timers[timer_id].callback != nullptr) {
-                        loop->timers[timer_id].callback(
-                            loop->timers[timer_id].data);
+                        loop->timers[timer_id].callback(loop->timers[timer_id].data);
                     }
                 }
                 loop->timers[timer_id].active = false;
@@ -241,8 +240,7 @@ void io_loop_stop(io_loop_t *loop)
 
 /* ---- Timer management ---- */
 
-int io_loop_add_timer(io_loop_t *loop, uint32_t ms,
-                      void (*cb)(void *), void *data)
+int io_loop_add_timer(io_loop_t *loop, uint32_t ms, void (*cb)(void *), void *data)
 {
     if (loop == nullptr || cb == nullptr) {
         return -EINVAL;
@@ -298,9 +296,7 @@ int io_loop_cancel_timer(io_loop_t *loop, int timer_id)
     }
 
     /* Cancel by user_data match */
-    io_uring_prep_cancel64(sqe,
-                           IO_ENCODE_USERDATA((uint64_t)timer_id, IO_OP_TIMEOUT),
-                           0);
+    io_uring_prep_cancel64(sqe, IO_ENCODE_USERDATA((uint64_t)timer_id, IO_OP_TIMEOUT), 0);
     io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA((uint64_t)timer_id, IO_OP_CANCEL));
 
     loop->timers[timer_id].active = false;
@@ -311,8 +307,7 @@ int io_loop_cancel_timer(io_loop_t *loop, int timer_id)
 
 /* ---- Provided buffer ring ---- */
 
-int io_loop_setup_buf_ring(io_loop_t *loop, uint16_t bgid,
-                           uint32_t buf_count, uint32_t buf_size)
+int io_loop_setup_buf_ring(io_loop_t *loop, uint16_t bgid, uint32_t buf_count, uint32_t buf_size)
 {
     if (loop == nullptr) {
         return -EINVAL;
@@ -331,8 +326,7 @@ int io_loop_setup_buf_ring(io_loop_t *loop, uint16_t bgid,
     }
 
     int err = 0;
-    struct io_uring_buf_ring *br = io_uring_setup_buf_ring(
-        &loop->ring, buf_count, bgid, 0, &err);
+    struct io_uring_buf_ring *br = io_uring_setup_buf_ring(&loop->ring, buf_count, bgid, 0, &err);
     if (br == nullptr) {
         free(base);
         return err;
@@ -340,8 +334,7 @@ int io_loop_setup_buf_ring(io_loop_t *loop, uint16_t bgid,
 
     /* Register each buffer in the ring */
     for (uint32_t i = 0; i < buf_count; i++) {
-        io_uring_buf_ring_add(br, base + ((size_t)i * buf_size), buf_size,
-                              (unsigned short)i,
+        io_uring_buf_ring_add(br, base + ((size_t)i * buf_size), buf_size, (unsigned short)i,
                               io_uring_buf_ring_mask(buf_count), (int)i);
     }
     io_uring_buf_ring_advance(br, (int)buf_count);
@@ -355,8 +348,8 @@ int io_loop_setup_buf_ring(io_loop_t *loop, uint16_t bgid,
     return 0;
 }
 
-void io_loop_return_buf(io_loop_t *loop, uint16_t bgid, uint32_t buf_id,
-                        uint8_t *buf, uint32_t buf_size)
+void io_loop_return_buf(io_loop_t *loop, uint16_t bgid, uint32_t buf_id, uint8_t *buf,
+                        uint32_t buf_size)
 {
     if (loop == nullptr || loop->buf_ring == nullptr) {
         return;
@@ -365,8 +358,7 @@ void io_loop_return_buf(io_loop_t *loop, uint16_t bgid, uint32_t buf_id,
         return;
     }
 
-    io_uring_buf_ring_add(loop->buf_ring, buf, buf_size,
-                          (unsigned short)buf_id,
+    io_uring_buf_ring_add(loop->buf_ring, buf, buf_size, (unsigned short)buf_id,
                           io_uring_buf_ring_mask(loop->buf_count), 0);
     io_uring_buf_ring_advance(loop->buf_ring, 1);
 }

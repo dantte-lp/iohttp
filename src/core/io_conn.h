@@ -30,14 +30,14 @@ typedef enum : uint8_t {
 typedef struct {
     int fd;
     io_conn_state_t state;
-    uint32_t id;                         /**< unique within pool */
+    uint32_t id; /**< unique within pool */
     struct sockaddr_storage peer_addr;
-    struct sockaddr_storage proxy_addr;   /**< from PROXY protocol */
+    struct sockaddr_storage proxy_addr; /**< from PROXY protocol */
     bool proxy_used;
     uint64_t created_at_ms;
     uint64_t last_activity_ms;
-    void *protocol_ctx;                  /**< HTTP/1.1, HTTP/2, or HTTP/3 state */
-    void *tls_ctx;                       /**< WOLFSSL * */
+    void *protocol_ctx; /**< HTTP/1.1, HTTP/2, or HTTP/3 state */
+    void *tls_ctx;      /**< WOLFSSL * */
 } io_conn_t;
 
 /* ---- Opaque pool type ---- */
