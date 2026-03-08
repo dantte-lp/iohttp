@@ -88,8 +88,7 @@ static int walk_node(walk_state_t *state, const io_radix_node_t *node)
             }
             state->pattern[saved_len] = '/';
             state->pattern[saved_len + 1] = ':';
-            memcpy(state->pattern + saved_len + 2, child->param_name,
-                   name_len);
+            memcpy(state->pattern + saved_len + 2, child->param_name, name_len);
             state->pattern_len = needed;
             break;
         }
@@ -102,8 +101,7 @@ static int walk_node(walk_state_t *state, const io_radix_node_t *node)
             }
             state->pattern[saved_len] = '/';
             state->pattern[saved_len + 1] = '*';
-            memcpy(state->pattern + saved_len + 2, child->param_name,
-                   name_len);
+            memcpy(state->pattern + saved_len + 2, child->param_name, name_len);
             state->pattern_len = needed;
             break;
         }
@@ -194,9 +192,8 @@ uint32_t io_router_route_count(const io_router_t *r)
 /**
  * Recursively find the node matching a pattern and set its metadata.
  */
-static int find_and_set_metadata(io_radix_node_t *node, const char *pattern,
-                                  size_t pos, size_t pattern_len,
-                                  void *metadata)
+static int find_and_set_metadata(io_radix_node_t *node, const char *pattern, size_t pos,
+                                 size_t pattern_len, void *metadata)
 {
     /* Skip leading slash */
     if (pos < pattern_len && pattern[pos] == '/') {
@@ -236,8 +233,7 @@ static int find_and_set_metadata(io_radix_node_t *node, const char *pattern,
 
         for (uint32_t i = 0; i < node->child_count; i++) {
             io_radix_node_t *child = node->children[i];
-            if (child->type == IO_NODE_WILDCARD &&
-                strlen(child->param_name) == name_len &&
+            if (child->type == IO_NODE_WILDCARD && strlen(child->param_name) == name_len &&
                 memcmp(child->param_name, name, name_len) == 0) {
                 if (!child->handler) {
                     return -ENOENT;
@@ -256,11 +252,9 @@ static int find_and_set_metadata(io_radix_node_t *node, const char *pattern,
 
         for (uint32_t i = 0; i < node->child_count; i++) {
             io_radix_node_t *child = node->children[i];
-            if (child->type == IO_NODE_PARAM &&
-                strlen(child->param_name) == name_len &&
+            if (child->type == IO_NODE_PARAM && strlen(child->param_name) == name_len &&
                 memcmp(child->param_name, name, name_len) == 0) {
-                return find_and_set_metadata(child, pattern, seg_end,
-                                              pattern_len, metadata);
+                return find_and_set_metadata(child, pattern, seg_end, pattern_len, metadata);
             }
         }
         return -ENOENT;
@@ -276,10 +270,8 @@ static int find_and_set_metadata(io_radix_node_t *node, const char *pattern,
         }
 
         size_t prefix_len = strlen(child->prefix);
-        if (prefix_len == seg_len &&
-            memcmp(child->prefix, seg, seg_len) == 0) {
-            return find_and_set_metadata(child, pattern, seg_end,
-                                          pattern_len, metadata);
+        if (prefix_len == seg_len && memcmp(child->prefix, seg, seg_len) == 0) {
+            return find_and_set_metadata(child, pattern, seg_end, pattern_len, metadata);
         }
 
         /*
@@ -291,8 +283,7 @@ static int find_and_set_metadata(io_radix_node_t *node, const char *pattern,
     return -ENOENT;
 }
 
-int io_router_set_metadata(io_router_t *r, io_method_t method,
-                            const char *pattern, void *metadata)
+int io_router_set_metadata(io_router_t *r, io_method_t method, const char *pattern, void *metadata)
 {
     if (!r || !pattern) {
         return -EINVAL;
@@ -304,6 +295,5 @@ int io_router_set_metadata(io_router_t *r, io_method_t method,
     }
 
     size_t pattern_len = strlen(pattern);
-    return find_and_set_metadata(tree->root, pattern, 0, pattern_len,
-                                  metadata);
+    return find_and_set_metadata(tree->root, pattern, 0, pattern_len, metadata);
 }

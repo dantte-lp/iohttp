@@ -21,7 +21,7 @@ typedef enum : uint8_t {
 } io_node_type_t;
 
 typedef struct io_radix_node {
-    char *prefix;                    /* compressed edge label */
+    char *prefix; /* compressed edge label */
     io_node_type_t type;
     char *param_name;                /* for PARAM/WILDCARD nodes */
     void *handler;                   /* opaque handler pointer */
@@ -29,7 +29,7 @@ typedef struct io_radix_node {
     struct io_radix_node **children; /* sorted by: STATIC > PARAM > WILDCARD */
     uint32_t child_count;
     uint32_t child_capacity;
-    uint32_t priority;               /* sum of handlers in subtree */
+    uint32_t priority; /* sum of handlers in subtree */
 } io_radix_node_t;
 
 typedef struct {
@@ -68,8 +68,8 @@ void io_radix_destroy(io_radix_tree_t *tree);
  * @param metadata Opaque metadata pointer.
  * @return 0 on success, -ENOMEM, -EINVAL for bad pattern, -EEXIST for conflict.
  */
-[[nodiscard]] int io_radix_insert(io_radix_tree_t *tree, const char *pattern,
-                                  void *handler, void *metadata);
+[[nodiscard]] int io_radix_insert(io_radix_tree_t *tree, const char *pattern, void *handler,
+                                  void *metadata);
 
 /**
  * @brief Look up a concrete path in the trie.
@@ -80,7 +80,7 @@ void io_radix_destroy(io_radix_tree_t *tree);
  * @param match    Output match result with extracted parameters.
  * @return 0 if found (match populated), -ENOENT if no match.
  */
-[[nodiscard]] int io_radix_lookup(const io_radix_tree_t *tree, const char *path,
-                                  size_t path_len, io_radix_match_t *match);
+[[nodiscard]] int io_radix_lookup(const io_radix_tree_t *tree, const char *path, size_t path_len,
+                                  io_radix_match_t *match);
 
 #endif /* IOHTTP_ROUTER_RADIX_H */

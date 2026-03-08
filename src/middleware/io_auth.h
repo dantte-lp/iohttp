@@ -23,8 +23,7 @@ typedef bool (*io_auth_verify_fn)(const char *credentials, void *ctx);
  * @param ctx    User context passed to verify.
  * @return Middleware function, or nullptr on error.
  */
-[[nodiscard]] io_middleware_fn io_auth_basic_create(io_auth_verify_fn verify,
-                                                    void *ctx);
+[[nodiscard]] io_middleware_fn io_auth_basic_create(io_auth_verify_fn verify, void *ctx);
 
 /**
  * @brief Create HTTP Bearer authentication middleware.
@@ -32,8 +31,7 @@ typedef bool (*io_auth_verify_fn)(const char *credentials, void *ctx);
  * @param ctx    User context passed to verify.
  * @return Middleware function, or nullptr on error.
  */
-[[nodiscard]] io_middleware_fn io_auth_bearer_create(io_auth_verify_fn verify,
-                                                     void *ctx);
+[[nodiscard]] io_middleware_fn io_auth_bearer_create(io_auth_verify_fn verify, void *ctx);
 
 /**
  * @brief Destroy auth middleware state.

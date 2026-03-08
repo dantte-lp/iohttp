@@ -33,8 +33,7 @@ static int dummy_next(io_request_t *req, io_response_t *resp)
     return 0;
 }
 
-static void set_request_header(io_request_t *req, const char *name,
-                               const char *value)
+static void set_request_header(io_request_t *req, const char *name, const char *value)
 {
     uint32_t idx = req->header_count;
     req->headers[idx].name = name;
@@ -208,8 +207,7 @@ void test_cors_credentials(void)
     TEST_ASSERT_NOT_NULL(acao);
     TEST_ASSERT_EQUAL_STRING("https://example.com", acao);
 
-    const char *acac = resp_header(&resp,
-                                   "Access-Control-Allow-Credentials");
+    const char *acac = resp_header(&resp, "Access-Control-Allow-Credentials");
     TEST_ASSERT_NOT_NULL(acac);
     TEST_ASSERT_EQUAL_STRING("true", acac);
 

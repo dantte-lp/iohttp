@@ -33,8 +33,7 @@ static int dummy_next(io_request_t *req, io_response_t *resp)
     return 0;
 }
 
-static void set_request_header(io_request_t *req, const char *name,
-                               const char *value)
+static void set_request_header(io_request_t *req, const char *name, const char *value)
 {
     uint32_t idx = req->header_count;
     req->headers[idx].name = name;

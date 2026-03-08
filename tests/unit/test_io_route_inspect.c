@@ -3,8 +3,8 @@
  * @brief Unit tests for route introspection and metadata binding.
  */
 
-#include "router/io_route_inspect.h"
 #include "router/io_route_group.h"
+#include "router/io_route_inspect.h"
 #include "router/io_router.h"
 
 #include <errno.h>
@@ -181,8 +181,7 @@ void test_route_walk_includes_groups(void)
     bool found_api_users_post = false;
 
     for (uint32_t i = 0; i < ctx.count; i++) {
-        if (ctx.routes[i].handler == handler_a &&
-            strcmp(ctx.routes[i].pattern, "/health") == 0) {
+        if (ctx.routes[i].handler == handler_a && strcmp(ctx.routes[i].pattern, "/health") == 0) {
             found_health = true;
         }
         if (ctx.routes[i].handler == handler_b &&
@@ -229,8 +228,7 @@ void test_route_count(void)
 void test_route_set_metadata(void)
 {
     TEST_ASSERT_EQUAL_INT(0, io_router_get(router, "/users", handler_a));
-    TEST_ASSERT_EQUAL_INT(0,
-                           io_router_get(router, "/users/:id", handler_b));
+    TEST_ASSERT_EQUAL_INT(0, io_router_get(router, "/users/:id", handler_b));
 
     /* Initially no metadata */
     walk_ctx_t ctx;
@@ -284,12 +282,10 @@ void test_route_metadata_in_match(void)
         .oas_operation = nullptr,
     };
 
-    TEST_ASSERT_EQUAL_INT(
-        0, io_router_get_with(router, "/secure", handler_a, &opts));
+    TEST_ASSERT_EQUAL_INT(0, io_router_get_with(router, "/secure", handler_a, &opts));
 
     /* Dispatch and verify opts are returned */
-    io_route_match_t m = io_router_dispatch(router, IO_METHOD_GET,
-                                            "/secure", strlen("/secure"));
+    io_route_match_t m = io_router_dispatch(router, IO_METHOD_GET, "/secure", strlen("/secure"));
     TEST_ASSERT_EQUAL_INT(IO_MATCH_FOUND, m.status);
     TEST_ASSERT_EQUAL_PTR(handler_a, m.handler);
     TEST_ASSERT_NOT_NULL(m.opts);
@@ -298,8 +294,7 @@ void test_route_metadata_in_match(void)
 
     /* Now use set_metadata to attach additional metadata */
     int extra_tag = 777;
-    int rc = io_router_set_metadata(router, IO_METHOD_GET, "/secure",
-                                     &extra_tag);
+    int rc = io_router_set_metadata(router, IO_METHOD_GET, "/secure", &extra_tag);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     /* Walk and verify metadata was updated */

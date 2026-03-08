@@ -28,22 +28,18 @@ static bool origin_allowed(const io_cors_config_t *cfg, const char *origin)
     return false;
 }
 
-static int set_origin_header(io_response_t *resp, const io_cors_config_t *cfg,
-                             const char *origin)
+static int set_origin_header(io_response_t *resp, const io_cors_config_t *cfg, const char *origin)
 {
     if (cfg->allow_credentials && origin != nullptr) {
         /* credentials mode: echo back the matched origin, never "*" */
-        return io_response_set_header(resp,
-                                      "Access-Control-Allow-Origin", origin);
+        return io_response_set_header(resp, "Access-Control-Allow-Origin", origin);
     }
     if (cfg->origin_count == 0 || cfg->allowed_origins == nullptr) {
-        return io_response_set_header(resp,
-                                      "Access-Control-Allow-Origin", "*");
+        return io_response_set_header(resp, "Access-Control-Allow-Origin", "*");
     }
     /* specific origin list: echo back the matched one */
     if (origin != nullptr) {
-        return io_response_set_header(resp,
-                                      "Access-Control-Allow-Origin", origin);
+        return io_response_set_header(resp, "Access-Control-Allow-Origin", origin);
     }
     return 0;
 }
@@ -83,18 +79,14 @@ static int cors_middleware(io_request_t *req, io_response_t *resp,
             size_t off = 0;
             for (uint32_t i = 0; i < cfg->method_count; i++) {
                 if (i > 0) {
-                    off += (size_t)snprintf(buf + off, sizeof(buf) - off,
-                                            ", ");
+                    off += (size_t)snprintf(buf + off, sizeof(buf) - off, ", ");
                 }
-                off += (size_t)snprintf(buf + off, sizeof(buf) - off, "%s",
-                                        cfg->allowed_methods[i]);
+                off +=
+                    (size_t)snprintf(buf + off, sizeof(buf) - off, "%s", cfg->allowed_methods[i]);
             }
-            rc = io_response_set_header(resp,
-                                        "Access-Control-Allow-Methods", buf);
+            rc = io_response_set_header(resp, "Access-Control-Allow-Methods", buf);
         } else {
-            rc = io_response_set_header(resp,
-                                        "Access-Control-Allow-Methods",
-                                        DEFAULT_METHODS);
+            rc = io_response_set_header(resp, "Access-Control-Allow-Methods", DEFAULT_METHODS);
         }
         if (rc != 0) {
             return rc;
@@ -106,18 +98,14 @@ static int cors_middleware(io_request_t *req, io_response_t *resp,
             size_t off = 0;
             for (uint32_t i = 0; i < cfg->header_count; i++) {
                 if (i > 0) {
-                    off += (size_t)snprintf(buf + off, sizeof(buf) - off,
-                                            ", ");
+                    off += (size_t)snprintf(buf + off, sizeof(buf) - off, ", ");
                 }
-                off += (size_t)snprintf(buf + off, sizeof(buf) - off, "%s",
-                                        cfg->allowed_headers[i]);
+                off +=
+                    (size_t)snprintf(buf + off, sizeof(buf) - off, "%s", cfg->allowed_headers[i]);
             }
-            rc = io_response_set_header(resp,
-                                        "Access-Control-Allow-Headers", buf);
+            rc = io_response_set_header(resp, "Access-Control-Allow-Headers", buf);
         } else {
-            rc = io_response_set_header(resp,
-                                        "Access-Control-Allow-Headers",
-                                        DEFAULT_HEADERS);
+            rc = io_response_set_header(resp, "Access-Control-Allow-Headers", DEFAULT_HEADERS);
         }
         if (rc != 0) {
             return rc;
@@ -132,9 +120,7 @@ static int cors_middleware(io_request_t *req, io_response_t *resp,
         }
 
         if (cfg->allow_credentials) {
-            rc = io_response_set_header(resp,
-                                        "Access-Control-Allow-Credentials",
-                                        "true");
+            rc = io_response_set_header(resp, "Access-Control-Allow-Credentials", "true");
             if (rc != 0) {
                 return rc;
             }

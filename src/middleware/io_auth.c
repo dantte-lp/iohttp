@@ -20,31 +20,20 @@ static _Thread_local io_auth_state_t *tl_bearer_state;
 /* ---- Simple Base64 decoder ---- */
 
 static const int8_t B64_TABLE[256] = {
-    ['A'] = 0,  ['B'] = 1,  ['C'] = 2,  ['D'] = 3,
-    ['E'] = 4,  ['F'] = 5,  ['G'] = 6,  ['H'] = 7,
-    ['I'] = 8,  ['J'] = 9,  ['K'] = 10, ['L'] = 11,
-    ['M'] = 12, ['N'] = 13, ['O'] = 14, ['P'] = 15,
-    ['Q'] = 16, ['R'] = 17, ['S'] = 18, ['T'] = 19,
-    ['U'] = 20, ['V'] = 21, ['W'] = 22, ['X'] = 23,
-    ['Y'] = 24, ['Z'] = 25,
-    ['a'] = 26, ['b'] = 27, ['c'] = 28, ['d'] = 29,
-    ['e'] = 30, ['f'] = 31, ['g'] = 32, ['h'] = 33,
-    ['i'] = 34, ['j'] = 35, ['k'] = 36, ['l'] = 37,
-    ['m'] = 38, ['n'] = 39, ['o'] = 40, ['p'] = 41,
-    ['q'] = 42, ['r'] = 43, ['s'] = 44, ['t'] = 45,
-    ['u'] = 46, ['v'] = 47, ['w'] = 48, ['x'] = 49,
-    ['y'] = 50, ['z'] = 51,
-    ['0'] = 52, ['1'] = 53, ['2'] = 54, ['3'] = 55,
-    ['4'] = 56, ['5'] = 57, ['6'] = 58, ['7'] = 59,
-    ['8'] = 60, ['9'] = 61,
-    ['+'] = 62, ['/'] = 63,
+    ['A'] = 0,  ['B'] = 1,  ['C'] = 2,  ['D'] = 3,  ['E'] = 4,  ['F'] = 5,  ['G'] = 6,  ['H'] = 7,
+    ['I'] = 8,  ['J'] = 9,  ['K'] = 10, ['L'] = 11, ['M'] = 12, ['N'] = 13, ['O'] = 14, ['P'] = 15,
+    ['Q'] = 16, ['R'] = 17, ['S'] = 18, ['T'] = 19, ['U'] = 20, ['V'] = 21, ['W'] = 22, ['X'] = 23,
+    ['Y'] = 24, ['Z'] = 25, ['a'] = 26, ['b'] = 27, ['c'] = 28, ['d'] = 29, ['e'] = 30, ['f'] = 31,
+    ['g'] = 32, ['h'] = 33, ['i'] = 34, ['j'] = 35, ['k'] = 36, ['l'] = 37, ['m'] = 38, ['n'] = 39,
+    ['o'] = 40, ['p'] = 41, ['q'] = 42, ['r'] = 43, ['s'] = 44, ['t'] = 45, ['u'] = 46, ['v'] = 47,
+    ['w'] = 48, ['x'] = 49, ['y'] = 50, ['z'] = 51, ['0'] = 52, ['1'] = 53, ['2'] = 54, ['3'] = 55,
+    ['4'] = 56, ['5'] = 57, ['6'] = 58, ['7'] = 59, ['8'] = 60, ['9'] = 61, ['+'] = 62, ['/'] = 63,
 };
 
 /**
  * Decode base64 into out buffer. Returns decoded length, or -1 on error.
  */
-static int b64_decode(const char *src, size_t src_len,
-                      char *out, size_t out_size)
+static int b64_decode(const char *src, size_t src_len, char *out, size_t out_size)
 {
     if (src_len == 0) {
         return 0;
@@ -93,8 +82,7 @@ static int basic_middleware(io_request_t *req, io_response_t *resp,
 
     if (auth == nullptr || strncmp(auth, "Basic ", 6) != 0) {
         resp->status = 401;
-        (void)io_response_set_header(resp, "WWW-Authenticate",
-                                     "Basic realm=\"iohttp\"");
+        (void)io_response_set_header(resp, "WWW-Authenticate", "Basic realm=\"iohttp\"");
         return 0;
     }
 
@@ -105,15 +93,13 @@ static int basic_middleware(io_request_t *req, io_response_t *resp,
     int dec_len = b64_decode(encoded, enc_len, decoded, sizeof(decoded));
     if (dec_len < 0) {
         resp->status = 401;
-        (void)io_response_set_header(resp, "WWW-Authenticate",
-                                     "Basic realm=\"iohttp\"");
+        (void)io_response_set_header(resp, "WWW-Authenticate", "Basic realm=\"iohttp\"");
         return 0;
     }
 
     if (!st->verify(decoded, st->ctx)) {
         resp->status = 401;
-        (void)io_response_set_header(resp, "WWW-Authenticate",
-                                     "Basic realm=\"iohttp\"");
+        (void)io_response_set_header(resp, "WWW-Authenticate", "Basic realm=\"iohttp\"");
         return 0;
     }
 

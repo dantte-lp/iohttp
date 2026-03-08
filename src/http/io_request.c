@@ -235,15 +235,13 @@ int io_request_param_bool(const io_request_t *req, const char *name, bool *out)
     size_t len = param->value_len;
     const char *v = param->value;
 
-    if ((len == 4 && strncasecmp(v, "true", 4) == 0) ||
-        (len == 1 && v[0] == '1') ||
+    if ((len == 4 && strncasecmp(v, "true", 4) == 0) || (len == 1 && v[0] == '1') ||
         (len == 3 && strncasecmp(v, "yes", 3) == 0)) {
         *out = true;
         return 0;
     }
 
-    if ((len == 5 && strncasecmp(v, "false", 5) == 0) ||
-        (len == 1 && v[0] == '0') ||
+    if ((len == 5 && strncasecmp(v, "false", 5) == 0) || (len == 1 && v[0] == '0') ||
         (len == 2 && strncasecmp(v, "no", 2) == 0)) {
         *out = false;
         return 0;

@@ -40,8 +40,7 @@ static int security_middleware(io_request_t *req, io_response_t *resp,
 
     if (st->hsts) {
         char buf[64];
-        snprintf(buf, sizeof(buf), "max-age=%u; includeSubDomains",
-                 st->hsts_max_age);
+        snprintf(buf, sizeof(buf), "max-age=%u; includeSubDomains", st->hsts_max_age);
         rc = io_response_set_header(resp, "Strict-Transport-Security", buf);
         if (rc != 0) {
             return rc;
@@ -49,24 +48,21 @@ static int security_middleware(io_request_t *req, io_response_t *resp,
     }
 
     if (st->frame_options != nullptr) {
-        rc = io_response_set_header(resp, "X-Frame-Options",
-                                    st->frame_options);
+        rc = io_response_set_header(resp, "X-Frame-Options", st->frame_options);
         if (rc != 0) {
             return rc;
         }
     }
 
     if (st->referrer_policy != nullptr) {
-        rc = io_response_set_header(resp, "Referrer-Policy",
-                                    st->referrer_policy);
+        rc = io_response_set_header(resp, "Referrer-Policy", st->referrer_policy);
         if (rc != 0) {
             return rc;
         }
     }
 
     if (st->nosniff) {
-        rc = io_response_set_header(resp, "X-Content-Type-Options",
-                                    "nosniff");
+        rc = io_response_set_header(resp, "X-Content-Type-Options", "nosniff");
         if (rc != 0) {
             return rc;
         }

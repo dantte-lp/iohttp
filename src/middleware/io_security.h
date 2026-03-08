@@ -31,8 +31,7 @@ void io_security_config_init(io_security_config_t *cfg);
  * @param cfg Security config (copied internally).
  * @return Middleware function, or nullptr on error.
  */
-[[nodiscard]] io_middleware_fn io_security_create(
-    const io_security_config_t *cfg);
+[[nodiscard]] io_middleware_fn io_security_create(const io_security_config_t *cfg);
 
 /**
  * @brief Destroy security middleware state.

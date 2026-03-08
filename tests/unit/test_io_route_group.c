@@ -51,7 +51,7 @@ static int handler_admin(io_request_t *req, io_response_t *resp)
 /* ---- Stub middleware ---- */
 
 static int stub_mw_a(io_request_t *req, io_response_t *resp,
-                      int (*next)(io_request_t *, io_response_t *))
+                     int (*next)(io_request_t *, io_response_t *))
 {
     (void)req;
     (void)resp;
@@ -60,7 +60,7 @@ static int stub_mw_a(io_request_t *req, io_response_t *resp,
 }
 
 static int stub_mw_b(io_request_t *req, io_response_t *resp,
-                      int (*next)(io_request_t *, io_response_t *))
+                     int (*next)(io_request_t *, io_response_t *))
 {
     (void)req;
     (void)resp;
@@ -131,20 +131,17 @@ void test_group_method_registration(void)
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     /* Verify routes are registered on the router with full prefix */
-    io_route_match_t m = io_router_dispatch(router, IO_METHOD_GET,
-                                            "/api/users",
-                                            strlen("/api/users"));
+    io_route_match_t m =
+        io_router_dispatch(router, IO_METHOD_GET, "/api/users", strlen("/api/users"));
     TEST_ASSERT_EQUAL_INT(IO_MATCH_FOUND, m.status);
     TEST_ASSERT_EQUAL_PTR(handler_users, m.handler);
 
-    m = io_router_dispatch(router, IO_METHOD_POST, "/api/posts",
-                           strlen("/api/posts"));
+    m = io_router_dispatch(router, IO_METHOD_POST, "/api/posts", strlen("/api/posts"));
     TEST_ASSERT_EQUAL_INT(IO_MATCH_FOUND, m.status);
     TEST_ASSERT_EQUAL_PTR(handler_posts, m.handler);
 
     /* Verify the route does NOT exist without the prefix */
-    m = io_router_dispatch(router, IO_METHOD_GET, "/users",
-                           strlen("/users"));
+    m = io_router_dispatch(router, IO_METHOD_GET, "/users", strlen("/users"));
     TEST_ASSERT_NOT_EQUAL(IO_MATCH_FOUND, m.status);
 }
 
@@ -260,9 +257,8 @@ void test_group_with_route_opts(void)
     int rc = io_group_get_with(api, "/secure", handler_admin, &opts);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
-    io_route_match_t m = io_router_dispatch(router, IO_METHOD_GET,
-                                            "/api/secure",
-                                            strlen("/api/secure"));
+    io_route_match_t m =
+        io_router_dispatch(router, IO_METHOD_GET, "/api/secure", strlen("/api/secure"));
     TEST_ASSERT_EQUAL_INT(IO_MATCH_FOUND, m.status);
     TEST_ASSERT_EQUAL_PTR(handler_admin, m.handler);
     TEST_ASSERT_NOT_NULL(m.opts);

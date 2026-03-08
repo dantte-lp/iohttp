@@ -27,8 +27,7 @@ void io_ratelimit_config_init(io_ratelimit_config_t *cfg);
  * @param cfg Rate limit config (copied internally).
  * @return Middleware function, or nullptr on error.
  */
-[[nodiscard]] io_middleware_fn io_ratelimit_create(
-    const io_ratelimit_config_t *cfg);
+[[nodiscard]] io_middleware_fn io_ratelimit_create(const io_ratelimit_config_t *cfg);
 
 /**
  * @brief Destroy rate limiting middleware state.

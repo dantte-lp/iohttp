@@ -32,8 +32,7 @@ constexpr uint32_t IO_MAX_GLOBAL_MIDDLEWARE = 32;
 /* ---- Error and fallback handlers on router ---- */
 
 /** Error handler — called when handler or middleware returns non-zero. */
-typedef int (*io_error_handler_fn)(io_request_t *req, io_response_t *resp,
-                                    int error);
+typedef int (*io_error_handler_fn)(io_request_t *req, io_response_t *resp, int error);
 
 /**
  * @brief Set a custom error handler on the router.
@@ -64,8 +63,7 @@ void io_router_set_method_not_allowed(io_router_t *r, io_handler_fn h);
  * @param count Output: number of global middleware functions.
  * @return Pointer to the middleware array, or nullptr.
  */
-io_middleware_fn *io_router_global_middleware(const io_router_t *r,
-                                              uint32_t *count);
+io_middleware_fn *io_router_global_middleware(const io_router_t *r, uint32_t *count);
 
 /**
  * @brief Get the error handler from a router.
@@ -92,9 +90,9 @@ io_handler_fn io_router_method_not_allowed_handler(const io_router_t *r);
 
 typedef struct {
     io_middleware_fn *middleware; /* array of middleware fns */
-    uint32_t count;              /* total middleware count */
-    uint32_t current;            /* current position in chain */
-    io_handler_fn handler;       /* final handler */
+    uint32_t count;               /* total middleware count */
+    uint32_t current;             /* current position in chain */
+    io_handler_fn handler;        /* final handler */
 } io_chain_t;
 
 /**
@@ -113,10 +111,8 @@ typedef struct {
  * @return 0 on success, negative errno on error.
  */
 [[nodiscard]] int io_chain_execute(io_request_t *req, io_response_t *resp,
-                                    io_middleware_fn *global_mw,
-                                    uint32_t global_count,
-                                    io_middleware_fn *group_mw,
-                                    uint32_t group_count,
-                                    io_handler_fn handler);
+                                   io_middleware_fn *global_mw, uint32_t global_count,
+                                   io_middleware_fn *group_mw, uint32_t group_count,
+                                   io_handler_fn handler);
 
 #endif /* IOHTTP_MIDDLEWARE_MIDDLEWARE_H */

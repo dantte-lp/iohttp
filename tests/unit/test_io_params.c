@@ -18,8 +18,7 @@ void tearDown(void)
 {
 }
 
-static void setup_param(io_request_t *req, uint32_t idx,
-                         const char *name, const char *value)
+static void setup_param(io_request_t *req, uint32_t idx, const char *name, const char *value)
 {
     req->params[idx].name = name;
     req->params[idx].name_len = strlen(name);

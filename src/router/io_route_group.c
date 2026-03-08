@@ -29,8 +29,7 @@ struct io_group {
  * Build a full path by concatenating the group prefix and the pattern.
  * Returns 0 on success, -EINVAL if the result would overflow.
  */
-static int build_full_path(const io_group_t *g, const char *pattern,
-                            char *out, size_t out_size)
+static int build_full_path(const io_group_t *g, const char *pattern, char *out, size_t out_size)
 {
     int written = snprintf(out, out_size, "%s%s", g->prefix, pattern);
     if (written < 0 || (size_t)written >= out_size) {
@@ -42,11 +41,9 @@ static int build_full_path(const io_group_t *g, const char *pattern,
 static int group_add_subgroup(io_group_t *parent, io_group_t *child)
 {
     if (parent->subgroup_count >= parent->subgroup_capacity) {
-        uint32_t new_cap = parent->subgroup_capacity == 0
-                               ? GROUP_INITIAL_SUBGROUP_CAP
-                               : parent->subgroup_capacity * 2;
-        io_group_t **new_arr = realloc(
-            parent->subgroups, (size_t)new_cap * sizeof(*new_arr));
+        uint32_t new_cap = parent->subgroup_capacity == 0 ? GROUP_INITIAL_SUBGROUP_CAP
+                                                          : parent->subgroup_capacity * 2;
+        io_group_t **new_arr = realloc(parent->subgroups, (size_t)new_cap * sizeof(*new_arr));
         if (!new_arr) {
             return -ENOMEM;
         }
@@ -251,8 +248,8 @@ io_middleware_fn io_group_middleware_at(const io_group_t *g, uint32_t idx)
     return g->middleware[idx];
 }
 
-int io_group_get_with(io_group_t *g, const char *pattern,
-                       io_handler_fn h, const io_route_opts_t *opts)
+int io_group_get_with(io_group_t *g, const char *pattern, io_handler_fn h,
+                      const io_route_opts_t *opts)
 {
     if (!g || !pattern || !h) {
         return -EINVAL;

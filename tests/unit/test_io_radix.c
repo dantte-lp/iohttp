@@ -88,8 +88,7 @@ void test_radix_insert_wildcard(void)
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
-    rc = io_radix_lookup(tree, "/static/js/app.js",
-                         strlen("/static/js/app.js"), &match);
+    rc = io_radix_lookup(tree, "/static/js/app.js", strlen("/static/js/app.js"), &match);
     TEST_ASSERT_EQUAL_INT(0, rc);
     TEST_ASSERT_EQUAL_PTR(&handler_a, match.handler);
     TEST_ASSERT_EQUAL_UINT32(1, match.param_count);
@@ -137,10 +136,8 @@ void test_radix_lookup_param_extract(void)
     rc = io_radix_lookup(tree, "/users/42", strlen("/users/42"), &match);
     TEST_ASSERT_EQUAL_INT(0, rc);
     TEST_ASSERT_EQUAL_UINT32(1, match.param_count);
-    TEST_ASSERT_EQUAL_STRING_LEN("id", match.params[0].name,
-                                 match.params[0].name_len);
-    TEST_ASSERT_EQUAL_STRING_LEN("42", match.params[0].value,
-                                 match.params[0].value_len);
+    TEST_ASSERT_EQUAL_STRING_LEN("id", match.params[0].name, match.params[0].name_len);
+    TEST_ASSERT_EQUAL_STRING_LEN("42", match.params[0].value, match.params[0].value_len);
     TEST_ASSERT_EQUAL_size_t(2, match.params[0].name_len);
     TEST_ASSERT_EQUAL_size_t(2, match.params[0].value_len);
 
@@ -158,14 +155,11 @@ void test_radix_lookup_wildcard_extract(void)
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
-    rc = io_radix_lookup(tree, "/static/js/app.js",
-                         strlen("/static/js/app.js"), &match);
+    rc = io_radix_lookup(tree, "/static/js/app.js", strlen("/static/js/app.js"), &match);
     TEST_ASSERT_EQUAL_INT(0, rc);
     TEST_ASSERT_EQUAL_UINT32(1, match.param_count);
-    TEST_ASSERT_EQUAL_STRING_LEN("path", match.params[0].name,
-                                 match.params[0].name_len);
-    TEST_ASSERT_EQUAL_STRING_LEN("js/app.js", match.params[0].value,
-                                 match.params[0].value_len);
+    TEST_ASSERT_EQUAL_STRING_LEN("path", match.params[0].name, match.params[0].name_len);
+    TEST_ASSERT_EQUAL_STRING_LEN("js/app.js", match.params[0].value, match.params[0].value_len);
     TEST_ASSERT_EQUAL_size_t(4, match.params[0].name_len);
     TEST_ASSERT_EQUAL_size_t(9, match.params[0].value_len);
 
@@ -219,12 +213,10 @@ void test_radix_priority_param_over_wildcard(void)
     TEST_ASSERT_EQUAL_INT(0, rc);
     TEST_ASSERT_EQUAL_PTR(&handler_b, match.handler);
     TEST_ASSERT_EQUAL_UINT32(1, match.param_count);
-    TEST_ASSERT_EQUAL_STRING_LEN("name", match.params[0].name,
-                                 match.params[0].name_len);
+    TEST_ASSERT_EQUAL_STRING_LEN("name", match.params[0].name, match.params[0].name_len);
 
     /* /files/dir/file should match wildcard (multi-segment) */
-    rc = io_radix_lookup(tree, "/files/dir/file",
-                         strlen("/files/dir/file"), &match);
+    rc = io_radix_lookup(tree, "/files/dir/file", strlen("/files/dir/file"), &match);
     TEST_ASSERT_EQUAL_INT(0, rc);
     TEST_ASSERT_EQUAL_PTR(&handler_a, match.handler);
 

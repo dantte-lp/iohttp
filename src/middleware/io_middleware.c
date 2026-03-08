@@ -24,9 +24,8 @@ static int chain_next(io_request_t *req, io_response_t *resp)
     return mw(req, resp, chain_next);
 }
 
-int io_chain_execute(io_request_t *req, io_response_t *resp,
-                     io_middleware_fn *global_mw, uint32_t global_count,
-                     io_middleware_fn *group_mw, uint32_t group_count,
+int io_chain_execute(io_request_t *req, io_response_t *resp, io_middleware_fn *global_mw,
+                     uint32_t global_count, io_middleware_fn *group_mw, uint32_t group_count,
                      io_handler_fn handler)
 {
     if (!req || !resp || !handler) {

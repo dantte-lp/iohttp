@@ -99,7 +99,7 @@ bool io_ratelimit_check(const char *key)
 }
 
 static int ratelimit_middleware(io_request_t *req, io_response_t *resp,
-                               int (*next)(io_request_t *, io_response_t *))
+                                int (*next)(io_request_t *, io_response_t *))
 {
     /* use Host header as key, fallback to "default" */
     const char *key = io_request_header(req, "Host");

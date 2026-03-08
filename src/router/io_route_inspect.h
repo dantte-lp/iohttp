@@ -14,9 +14,9 @@
 /* Route info returned during walk */
 typedef struct {
     io_method_t method;
-    const char *pattern;     /* reconstructed pattern string from trie */
+    const char *pattern; /* reconstructed pattern string from trie */
     io_handler_fn handler;
-    void *metadata;          /* oas_operation, permissions, etc. */
+    void *metadata; /* oas_operation, permissions, etc. */
 } io_route_info_t;
 
 /* Walk callback — return 0 to continue, non-zero to stop */
@@ -30,8 +30,7 @@ typedef int (*io_route_walk_fn)(const io_route_info_t *info, void *ctx);
  * @return 0 on success (all routes visited), positive if callback stopped early,
  *         negative errno on error.
  */
-[[nodiscard]] int io_router_walk(const io_router_t *r, io_route_walk_fn fn,
-                                  void *ctx);
+[[nodiscard]] int io_router_walk(const io_router_t *r, io_route_walk_fn fn, void *ctx);
 
 /**
  * @brief Count registered routes across all method trees.
@@ -48,7 +47,7 @@ uint32_t io_router_route_count(const io_router_t *r);
  * @param metadata Pointer to attach.
  * @return 0 on success, -EINVAL on bad args, -ENOENT if route not found.
  */
-[[nodiscard]] int io_router_set_metadata(io_router_t *r, io_method_t method,
-                                          const char *pattern, void *metadata);
+[[nodiscard]] int io_router_set_metadata(io_router_t *r, io_method_t method, const char *pattern,
+                                         void *metadata);
 
 #endif /* IOHTTP_ROUTER_ROUTE_INSPECT_H */

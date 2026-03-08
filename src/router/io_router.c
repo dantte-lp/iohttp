@@ -37,8 +37,8 @@ struct io_router {
 
 /* ---- Path normalization ---- */
 
-int io_path_normalize(const char *path, size_t path_len,
-                      char *out, size_t out_size, size_t *out_len)
+int io_path_normalize(const char *path, size_t path_len, char *out, size_t out_size,
+                      size_t *out_len)
 {
     if (!path || !out || !out_len || out_size == 0) {
         return -EINVAL;
@@ -86,8 +86,7 @@ int io_path_normalize(const char *path, size_t path_len,
         }
 
         /* Handle ".." -- go up */
-        if (seg_len == 2 && path[seg_start] == '.' &&
-            path[seg_start + 1] == '.') {
+        if (seg_len == 2 && path[seg_start] == '.' && path[seg_start + 1] == '.') {
             if (depth == 0) {
                 return -EINVAL; /* traversal above root */
             }
@@ -150,9 +149,8 @@ static bool path_has_encoded_null(const char *path, size_t path_len)
     return false;
 }
 
-static int router_add_route(io_router_t *r, io_method_t method,
-                             const char *pattern, io_handler_fn h,
-                             const io_route_opts_t *opts)
+static int router_add_route(io_router_t *r, io_method_t method, const char *pattern,
+                            io_handler_fn h, const io_route_opts_t *opts)
 {
     if (!r || !pattern || !h) {
         return -EINVAL;
@@ -171,24 +169,33 @@ static int router_add_route(io_router_t *r, io_method_t method,
     }
 
     /* Cast handler to void* for radix trie storage */
-    return io_radix_insert(r->trees[method], pattern,
-                           (void *)(uintptr_t)h,
+    return io_radix_insert(r->trees[method], pattern, (void *)(uintptr_t)h,
                            (void *)(uintptr_t)opts);
 }
 
 static const char *method_name_for_index(uint32_t idx)
 {
     switch (idx) {
-    case IO_METHOD_GET:     return "GET";
-    case IO_METHOD_POST:    return "POST";
-    case IO_METHOD_PUT:     return "PUT";
-    case IO_METHOD_DELETE:  return "DELETE";
-    case IO_METHOD_PATCH:   return "PATCH";
-    case IO_METHOD_HEAD:    return "HEAD";
-    case IO_METHOD_OPTIONS: return "OPTIONS";
-    case IO_METHOD_TRACE:   return "TRACE";
-    case IO_METHOD_CONNECT: return "CONNECT";
-    default:                return nullptr;
+    case IO_METHOD_GET:
+        return "GET";
+    case IO_METHOD_POST:
+        return "POST";
+    case IO_METHOD_PUT:
+        return "PUT";
+    case IO_METHOD_DELETE:
+        return "DELETE";
+    case IO_METHOD_PATCH:
+        return "PATCH";
+    case IO_METHOD_HEAD:
+        return "HEAD";
+    case IO_METHOD_OPTIONS:
+        return "OPTIONS";
+    case IO_METHOD_TRACE:
+        return "TRACE";
+    case IO_METHOD_CONNECT:
+        return "CONNECT";
+    default:
+        return nullptr;
     }
 }
 
@@ -255,38 +262,33 @@ int io_router_options(io_router_t *r, const char *pattern, io_handler_fn h)
     return router_add_route(r, IO_METHOD_OPTIONS, pattern, h, nullptr);
 }
 
-int io_router_handle(io_router_t *r, io_method_t method,
-                     const char *pattern, io_handler_fn h)
+int io_router_handle(io_router_t *r, io_method_t method, const char *pattern, io_handler_fn h)
 {
     return router_add_route(r, method, pattern, h, nullptr);
 }
 
-int io_router_get_with(io_router_t *r, const char *pattern,
-                       io_handler_fn h, const io_route_opts_t *opts)
+int io_router_get_with(io_router_t *r, const char *pattern, io_handler_fn h,
+                       const io_route_opts_t *opts)
 {
     return router_add_route(r, IO_METHOD_GET, pattern, h, opts);
 }
 
-int io_router_handle_with(io_router_t *r, io_method_t method,
-                          const char *pattern, io_handler_fn h,
+int io_router_handle_with(io_router_t *r, io_method_t method, const char *pattern, io_handler_fn h,
                           const io_route_opts_t *opts)
 {
     return router_add_route(r, method, pattern, h, opts);
 }
 
-int io_router_own_group(io_router_t *r, void *group,
-                        void (*destroy)(void *))
+int io_router_own_group(io_router_t *r, void *group, void (*destroy)(void *))
 {
     if (!r || !group || !destroy) {
         return -EINVAL;
     }
 
     if (r->group_count >= r->group_capacity) {
-        uint32_t new_cap = r->group_capacity == 0
-                               ? ROUTER_INITIAL_GROUP_CAP
-                               : r->group_capacity * 2;
-        io_owned_group_t *new_arr = realloc(
-            r->groups, (size_t)new_cap * sizeof(*new_arr));
+        uint32_t new_cap = r->group_capacity == 0 ? ROUTER_INITIAL_GROUP_CAP
+                                                  : r->group_capacity * 2;
+        io_owned_group_t *new_arr = realloc(r->groups, (size_t)new_cap * sizeof(*new_arr));
         if (!new_arr) {
             return -ENOMEM;
         }
@@ -351,8 +353,7 @@ void io_router_set_method_not_allowed(io_router_t *r, io_handler_fn h)
     }
 }
 
-io_middleware_fn *io_router_global_middleware(const io_router_t *r,
-                                              uint32_t *count)
+io_middleware_fn *io_router_global_middleware(const io_router_t *r, uint32_t *count)
 {
     if (!r || !count) {
         return nullptr;
@@ -388,9 +389,7 @@ io_handler_fn io_router_method_not_allowed_handler(const io_router_t *r)
 
 /* ---- Public API: dispatch ---- */
 
-io_route_match_t io_router_dispatch(const io_router_t *r,
-                                    io_method_t method,
-                                    const char *path,
+io_route_match_t io_router_dispatch(const io_router_t *r, io_method_t method, const char *path,
                                     size_t path_len)
 {
     io_route_match_t result;
@@ -414,8 +413,7 @@ io_route_match_t io_router_dispatch(const io_router_t *r,
     /* Normalize path (strips trailing slash except root) */
     char normalized[IO_MAX_URI_SIZE];
     size_t norm_len = 0;
-    int rc = io_path_normalize(path, path_len, normalized,
-                               sizeof(normalized), &norm_len);
+    int rc = io_path_normalize(path, path_len, normalized, sizeof(normalized), &norm_len);
     if (rc < 0) {
         return result;
     }
@@ -426,8 +424,7 @@ io_route_match_t io_router_dispatch(const io_router_t *r,
      * be redirected to the canonical (no-trailing-slash) form.
      */
     bool had_trailing_slash = (path_len > 1 && path[path_len - 1] == '/');
-    bool norm_has_trailing = (norm_len > 1 &&
-                              normalized[norm_len - 1] == '/');
+    bool norm_has_trailing = (norm_len > 1 && normalized[norm_len - 1] == '/');
     bool needs_redirect = had_trailing_slash && !norm_has_trailing;
 
     if (needs_redirect) {
@@ -437,8 +434,7 @@ io_route_match_t io_router_dispatch(const io_router_t *r,
                 continue;
             }
             io_radix_match_t rmatch;
-            rc = io_radix_lookup(r->trees[i], normalized, norm_len,
-                                 &rmatch);
+            rc = io_radix_lookup(r->trees[i], normalized, norm_len, &rmatch);
             if (rc == 0) {
                 result.status = IO_MATCH_REDIRECT;
                 memcpy(result.redirect_path, normalized, norm_len + 1);
@@ -451,16 +447,13 @@ io_route_match_t io_router_dispatch(const io_router_t *r,
     /* Try the requested method's tree */
     if (method < ROUTER_METHOD_COUNT && r->trees[method]) {
         io_radix_match_t rmatch;
-        rc = io_radix_lookup(r->trees[method], normalized, norm_len,
-                             &rmatch);
+        rc = io_radix_lookup(r->trees[method], normalized, norm_len, &rmatch);
         if (rc == 0) {
             result.status = IO_MATCH_FOUND;
             result.handler = (io_handler_fn)(uintptr_t)rmatch.handler;
-            result.opts =
-                (const io_route_opts_t *)(uintptr_t)rmatch.metadata;
+            result.opts = (const io_route_opts_t *)(uintptr_t)rmatch.metadata;
             result.param_count = rmatch.param_count;
-            memcpy(result.params, rmatch.params,
-                   rmatch.param_count * sizeof(io_param_t));
+            memcpy(result.params, rmatch.params, rmatch.param_count * sizeof(io_param_t));
             return result;
         }
     }
@@ -468,16 +461,13 @@ io_route_match_t io_router_dispatch(const io_router_t *r,
     /* Auto-HEAD: if HEAD request, try GET tree */
     if (method == IO_METHOD_HEAD && r->trees[IO_METHOD_GET]) {
         io_radix_match_t rmatch;
-        rc = io_radix_lookup(r->trees[IO_METHOD_GET], normalized, norm_len,
-                             &rmatch);
+        rc = io_radix_lookup(r->trees[IO_METHOD_GET], normalized, norm_len, &rmatch);
         if (rc == 0) {
             result.status = IO_MATCH_FOUND;
             result.handler = (io_handler_fn)(uintptr_t)rmatch.handler;
-            result.opts =
-                (const io_route_opts_t *)(uintptr_t)rmatch.metadata;
+            result.opts = (const io_route_opts_t *)(uintptr_t)rmatch.metadata;
             result.param_count = rmatch.param_count;
-            memcpy(result.params, rmatch.params,
-                   rmatch.param_count * sizeof(io_param_t));
+            memcpy(result.params, rmatch.params, rmatch.param_count * sizeof(io_param_t));
             return result;
         }
     }
@@ -497,18 +487,16 @@ io_route_match_t io_router_dispatch(const io_router_t *r,
             const char *mname = method_name_for_index(i);
             if (mname) {
                 if (any_method_matched) {
-                    int written = snprintf(
-                        result.allowed_methods + methods_offset,
-                        sizeof(result.allowed_methods) - methods_offset,
-                        ", %s", mname);
+                    int written = snprintf(result.allowed_methods + methods_offset,
+                                           sizeof(result.allowed_methods) - methods_offset, ", %s",
+                                           mname);
                     if (written > 0) {
                         methods_offset += (size_t)written;
                     }
                 } else {
-                    int written = snprintf(
-                        result.allowed_methods + methods_offset,
-                        sizeof(result.allowed_methods) - methods_offset,
-                        "%s", mname);
+                    int written = snprintf(result.allowed_methods + methods_offset,
+                                           sizeof(result.allowed_methods) - methods_offset, "%s",
+                                           mname);
                     if (written > 0) {
                         methods_offset += (size_t)written;
                     }

@@ -34,8 +34,7 @@ static int dummy_next(io_request_t *req, io_response_t *resp)
     return 0;
 }
 
-static void set_request_header(io_request_t *req, const char *name,
-                               const char *value)
+static void set_request_header(io_request_t *req, const char *name, const char *value)
 {
     uint32_t idx = req->header_count;
     req->headers[idx].name = name;
@@ -206,7 +205,7 @@ void test_ratelimit_refill(void)
 {
     io_ratelimit_config_t cfg;
     io_ratelimit_config_init(&cfg);
-    cfg.requests_per_second = 1000;  /* high rate for fast refill */
+    cfg.requests_per_second = 1000; /* high rate for fast refill */
     cfg.burst = 1;
 
     io_middleware_fn mw = io_ratelimit_create(&cfg);

@@ -44,16 +44,11 @@ typedef struct io_group io_group_t;
 
 /* ---- Method-specific registration on groups ---- */
 
-[[nodiscard]] int io_group_get(io_group_t *g, const char *pattern,
-                                io_handler_fn h);
-[[nodiscard]] int io_group_post(io_group_t *g, const char *pattern,
-                                 io_handler_fn h);
-[[nodiscard]] int io_group_put(io_group_t *g, const char *pattern,
-                                io_handler_fn h);
-[[nodiscard]] int io_group_delete(io_group_t *g, const char *pattern,
-                                   io_handler_fn h);
-[[nodiscard]] int io_group_patch(io_group_t *g, const char *pattern,
-                                  io_handler_fn h);
+[[nodiscard]] int io_group_get(io_group_t *g, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_group_post(io_group_t *g, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_group_put(io_group_t *g, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_group_delete(io_group_t *g, const char *pattern, io_handler_fn h);
+[[nodiscard]] int io_group_patch(io_group_t *g, const char *pattern, io_handler_fn h);
 
 /**
  * @brief Attach a middleware function to a group.
@@ -100,9 +95,8 @@ io_middleware_fn io_group_middleware_at(const io_group_t *g, uint32_t idx);
  * @param opts    Route options (may be nullptr).
  * @return 0 on success, negative errno on error.
  */
-[[nodiscard]] int io_group_get_with(io_group_t *g, const char *pattern,
-                                     io_handler_fn h,
-                                     const io_route_opts_t *opts);
+[[nodiscard]] int io_group_get_with(io_group_t *g, const char *pattern, io_handler_fn h,
+                                    const io_route_opts_t *opts);
 
 /**
  * @brief Destroy a group and all its subgroups.
