@@ -11,6 +11,7 @@
 #include "http/io_http2.h"
 #include "http/io_request.h"
 #include "http/io_response.h"
+#include "core/io_ctx.h"
 #include "tls/io_tls.h"
 
 #include <errno.h>
@@ -260,41 +261,45 @@ typedef struct {
     io_request_t last_req;
     int32_t last_stream_id;
     int request_count;
-    io_response_t response;
     bool has_response;
+    uint16_t resp_status;
+    const char *resp_content_type;
+    const uint8_t *resp_body;
+    size_t resp_body_len;
     char path_copy[256];
     char host_copy[128];
     uint8_t body_copy[4096];
 } h2_test_ctx_t;
 
-static io_response_t *h2_on_request_cb(const io_request_t *req, int32_t stream_id, void *user_data)
+static int h2_on_request_cb(io_ctx_t *c, int32_t stream_id, void *user_data)
 {
     h2_test_ctx_t *ctx = user_data;
-    ctx->last_req = *req;
+    ctx->last_req = *c->req;
     ctx->last_stream_id = stream_id;
     ctx->request_count++;
 
-    if (req->path != nullptr && req->path_len < sizeof(ctx->path_copy)) {
-        memcpy(ctx->path_copy, req->path, req->path_len);
-        ctx->path_copy[req->path_len] = '\0';
+    if (c->req->path != nullptr && c->req->path_len < sizeof(ctx->path_copy)) {
+        memcpy(ctx->path_copy, c->req->path, c->req->path_len);
+        ctx->path_copy[c->req->path_len] = '\0';
         ctx->last_req.path = ctx->path_copy;
     }
-    if (req->host != nullptr) {
-        size_t h_len = strlen(req->host);
+    if (c->req->host != nullptr) {
+        size_t h_len = strlen(c->req->host);
         if (h_len < sizeof(ctx->host_copy)) {
-            memcpy(ctx->host_copy, req->host, h_len + 1);
+            memcpy(ctx->host_copy, c->req->host, h_len + 1);
             ctx->last_req.host = ctx->host_copy;
         }
     }
-    if (req->body != nullptr && req->body_len <= sizeof(ctx->body_copy)) {
-        memcpy(ctx->body_copy, req->body, req->body_len);
+    if (c->req->body != nullptr && c->req->body_len <= sizeof(ctx->body_copy)) {
+        memcpy(ctx->body_copy, c->req->body, c->req->body_len);
         ctx->last_req.body = ctx->body_copy;
     }
 
     if (ctx->has_response) {
-        return &ctx->response;
+        (void)io_respond(c->resp, ctx->resp_status, ctx->resp_content_type,
+                         ctx->resp_body, ctx->resp_body_len);
     }
-    return nullptr;
+    return 0;
 }
 
 /* ---- Unity setup/teardown ---- */
@@ -595,11 +600,11 @@ void test_http2_full_request_via_tls(void)
     TEST_ASSERT_EQUAL_STRING("h2", alpn);
 
     /* Create HTTP/2 server session with a response callback */
-    h2_test_ctx_t h2ctx = {.request_count = 0, .has_response = true};
-    TEST_ASSERT_EQUAL_INT(0, io_response_init(&h2ctx.response));
     const char *body = "Hello, HTTP/2!";
-    TEST_ASSERT_EQUAL_INT(0, io_respond(&h2ctx.response, 200, "text/plain", (const uint8_t *)body,
-                                        strlen(body)));
+    h2_test_ctx_t h2ctx = {.request_count = 0, .has_response = true,
+                           .resp_status = 200, .resp_content_type = "text/plain",
+                           .resp_body = (const uint8_t *)body,
+                           .resp_body_len = strlen(body)};
 
     io_http2_session_t *h2_server = io_http2_session_create(nullptr, h2_on_request_cb, &h2ctx);
     TEST_ASSERT_NOT_NULL(h2_server);
@@ -641,7 +646,6 @@ void test_http2_full_request_via_tls(void)
     TEST_ASSERT_EQUAL_INT(0, memcmp(h2ctx.last_req.path, "/hello", 6));
     TEST_ASSERT_EQUAL_UINT8(2, h2ctx.last_req.http_version_major);
 
-    io_response_destroy(&h2ctx.response);
     nghttp2_session_del(ng_client);
     io_http2_session_destroy(h2_server);
     client_destroy(client);
@@ -673,13 +677,11 @@ void test_http2_multiple_streams_via_tls(void)
 
     TEST_ASSERT_EQUAL_STRING("h2", io_tls_get_alpn(sconn));
 
-    /* HTTP/2 session — single shared response is safe here because the body
-     * is immutable after init and nghttp2 reads it via data provider. Each
-     * stream gets its own h2_resp_data_t internally. */
-    h2_test_ctx_t h2ctx = {.request_count = 0, .has_response = true};
-    TEST_ASSERT_EQUAL_INT(0, io_response_init(&h2ctx.response));
-    TEST_ASSERT_EQUAL_INT(0,
-                          io_respond(&h2ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
+    /* HTTP/2 session — response data is stored in the test context and copied
+     * into each per-stream io_ctx_t response by the callback. */
+    h2_test_ctx_t h2ctx = {.request_count = 0, .has_response = true,
+                           .resp_status = 200, .resp_content_type = "text/plain",
+                           .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
 
     io_http2_session_t *h2_server = io_http2_session_create(nullptr, h2_on_request_cb, &h2ctx);
     TEST_ASSERT_NOT_NULL(h2_server);
@@ -720,7 +722,6 @@ void test_http2_multiple_streams_via_tls(void)
     /* All 3 requests should have been received */
     TEST_ASSERT_EQUAL_INT(3, h2ctx.request_count);
 
-    io_response_destroy(&h2ctx.response);
     nghttp2_session_del(ng_client);
     io_http2_session_destroy(h2_server);
     client_destroy(client);

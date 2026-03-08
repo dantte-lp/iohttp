@@ -8,6 +8,8 @@
 
 #include "http/io_http2.h"
 
+#include "core/io_ctx.h"
+
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -28,8 +30,11 @@ typedef struct {
     io_request_t last_req;
     int32_t last_stream_id;
     int request_count;
-    io_response_t response; /* pre-built response for the callback to return */
     bool has_response;
+    uint16_t resp_status;
+    const char *resp_content_type;
+    const uint8_t *resp_body;
+    size_t resp_body_len;
     /* Copies of strings that outlive the callback (arena-owned pointers are freed on stream close)
      */
     char path_copy[256];
@@ -38,44 +43,45 @@ typedef struct {
     uint8_t body_copy[4096];
 } test_ctx_t;
 
-/* ---- Callback: records received requests, returns response ---- */
+/* ---- Callback: records received requests, fills response via context ---- */
 
-static io_response_t *on_request_cb(const io_request_t *req, int32_t stream_id, void *user_data)
+static int on_request_cb(io_ctx_t *c, int32_t stream_id, void *user_data)
 {
     test_ctx_t *ctx = user_data;
-    ctx->last_req = *req;
+    ctx->last_req = *c->req;
     ctx->last_stream_id = stream_id;
     ctx->request_count++;
 
     /* Copy strings that will be freed when the stream closes */
-    if (req->path != nullptr && req->path_len < sizeof(ctx->path_copy)) {
-        memcpy(ctx->path_copy, req->path, req->path_len);
-        ctx->path_copy[req->path_len] = '\0';
+    if (c->req->path != nullptr && c->req->path_len < sizeof(ctx->path_copy)) {
+        memcpy(ctx->path_copy, c->req->path, c->req->path_len);
+        ctx->path_copy[c->req->path_len] = '\0';
         ctx->last_req.path = ctx->path_copy;
     }
-    if (req->content_type != nullptr) {
-        size_t ct_len = strlen(req->content_type);
+    if (c->req->content_type != nullptr) {
+        size_t ct_len = strlen(c->req->content_type);
         if (ct_len < sizeof(ctx->content_type_copy)) {
-            memcpy(ctx->content_type_copy, req->content_type, ct_len + 1);
+            memcpy(ctx->content_type_copy, c->req->content_type, ct_len + 1);
             ctx->last_req.content_type = ctx->content_type_copy;
         }
     }
-    if (req->host != nullptr) {
-        size_t h_len = strlen(req->host);
+    if (c->req->host != nullptr) {
+        size_t h_len = strlen(c->req->host);
         if (h_len < sizeof(ctx->host_copy)) {
-            memcpy(ctx->host_copy, req->host, h_len + 1);
+            memcpy(ctx->host_copy, c->req->host, h_len + 1);
             ctx->last_req.host = ctx->host_copy;
         }
     }
-    if (req->body != nullptr && req->body_len <= sizeof(ctx->body_copy)) {
-        memcpy(ctx->body_copy, req->body, req->body_len);
+    if (c->req->body != nullptr && c->req->body_len <= sizeof(ctx->body_copy)) {
+        memcpy(ctx->body_copy, c->req->body, c->req->body_len);
         ctx->last_req.body = ctx->body_copy;
     }
 
     if (ctx->has_response) {
-        return &ctx->response;
+        (void)io_respond(c->resp, ctx->resp_status, ctx->resp_content_type,
+                         ctx->resp_body, ctx->resp_body_len);
     }
-    return nullptr;
+    return 0;
 }
 
 /* ---- Client-side send callback: captures output into test_buf_t ---- */
@@ -283,11 +289,9 @@ void test_http2_simple_get(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true};
-
-    TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0,
-                          io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
+    test_ctx_t ctx = {.request_count = 0, .has_response = true,
+                      .resp_status = 200, .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -317,7 +321,6 @@ void test_http2_simple_get(void)
     /* Server response should be available */
     TEST_ASSERT_GREATER_THAN(0, server_out.len);
 
-    io_response_destroy(&ctx.response);
     nghttp2_session_del(client);
     io_http2_session_destroy(server);
 }
@@ -326,11 +329,9 @@ void test_http2_post_with_body(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true};
-
-    TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0, io_respond(&ctx.response, 201, "text/plain",
-                                        (const uint8_t *)"Created", 7));
+    test_ctx_t ctx = {.request_count = 0, .has_response = true,
+                      .resp_status = 201, .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"Created", .resp_body_len = 7};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -379,7 +380,6 @@ void test_http2_post_with_body(void)
     TEST_ASSERT_EQUAL_INT(0, memcmp(ctx.last_req.body, body, body_len));
     TEST_ASSERT_EQUAL_STRING("application/json", ctx.last_req.content_type);
 
-    io_response_destroy(&ctx.response);
     nghttp2_session_del(client);
     io_http2_session_destroy(server);
 }
@@ -388,11 +388,9 @@ void test_http2_stream_multiplexing(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true};
-
-    TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0,
-                          io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
+    test_ctx_t ctx = {.request_count = 0, .has_response = true,
+                      .resp_status = 200, .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -421,7 +419,6 @@ void test_http2_stream_multiplexing(void)
 
     TEST_ASSERT_EQUAL_INT(3, ctx.request_count);
 
-    io_response_destroy(&ctx.response);
     nghttp2_session_del(client);
     io_http2_session_destroy(server);
 }
@@ -430,11 +427,9 @@ void test_http2_flow_control(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true};
-
-    TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0,
-                          io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
+    test_ctx_t ctx = {.request_count = 0, .has_response = true,
+                      .resp_status = 200, .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -469,7 +464,6 @@ void test_http2_flow_control(void)
     TEST_ASSERT_TRUE(io_http2_want_read(server));
     TEST_ASSERT_EQUAL_INT(1, ctx.request_count);
 
-    io_response_destroy(&ctx.response);
     nghttp2_session_del(client);
     io_http2_session_destroy(server);
 }
@@ -557,11 +551,9 @@ void test_http2_rst_stream(void)
 {
     test_buf_t client_out = {.len = 0};
     test_buf_t server_out = {.len = 0};
-    test_ctx_t ctx = {.request_count = 0, .has_response = true};
-
-    TEST_ASSERT_EQUAL_INT(0, io_response_init(&ctx.response));
-    TEST_ASSERT_EQUAL_INT(0,
-                          io_respond(&ctx.response, 200, "text/plain", (const uint8_t *)"OK", 2));
+    test_ctx_t ctx = {.request_count = 0, .has_response = true,
+                      .resp_status = 200, .resp_content_type = "text/plain",
+                      .resp_body = (const uint8_t *)"OK", .resp_body_len = 2};
 
     io_http2_session_t *server = io_http2_session_create(nullptr, on_request_cb, &ctx);
     nghttp2_session *client = make_client(&client_out);
@@ -591,7 +583,6 @@ void test_http2_rst_stream(void)
      * The RST_STREAM just closed the stream. Server should still be operational. */
     TEST_ASSERT_TRUE(io_http2_want_read(server));
 
-    io_response_destroy(&ctx.response);
     nghttp2_session_del(client);
     io_http2_session_destroy(server);
 }

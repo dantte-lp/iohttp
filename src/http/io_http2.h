@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include "core/io_ctx.h"
 #include "http/io_request.h"
 #include "http/io_response.h"
 
@@ -35,15 +36,12 @@ typedef struct {
 
 /**
  * @brief Called when a complete HTTP/2 request is received (END_STREAM).
- * @param req       The parsed request (owned by the session, valid until callback returns).
+ * @param c         Unified context with req/resp pointers. Handler fills c->resp.
  * @param stream_id The HTTP/2 stream ID.
  * @param user_data User context from io_http2_session_create().
- * @return Response to send, or nullptr to send no response.
- *         Response must remain valid until the next io_http2_flush() call
- *         completes. Caller is responsible for destroying it after flush.
+ * @return 0 on success, negative errno on failure.
  */
-typedef io_response_t *(*io_http2_on_request_fn)(const io_request_t *req, int32_t stream_id,
-                                                 void *user_data);
+typedef int (*io_http2_on_request_fn)(io_ctx_t *c, int32_t stream_id, void *user_data);
 
 /* ---- Session lifecycle ---- */
 
