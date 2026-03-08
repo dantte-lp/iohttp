@@ -51,7 +51,8 @@ static int walk_node(walk_state_t *state, const io_radix_node_t *node)
             .method = state->method,
             .pattern = pattern_copy,
             .handler = (io_handler_fn)(uintptr_t)node->handler,
-            .metadata = node->metadata,
+            .opts = (const io_route_opts_t *)(uintptr_t)node->metadata,
+            .meta = node->meta,
         };
 
         int rc = state->fn(&info, state->ctx);
@@ -187,13 +188,13 @@ uint32_t io_router_route_count(const io_router_t *r)
     return total;
 }
 
-/* ---- Set metadata: find a node matching the pattern ---- */
+/* ---- Set meta: find a node matching the pattern ---- */
 
 /**
- * Recursively find the node matching a pattern and set its metadata.
+ * Recursively find the node matching a pattern and set its meta.
  */
-static int find_and_set_metadata(io_radix_node_t *node, const char *pattern, size_t pos,
-                                 size_t pattern_len, void *metadata)
+static int find_and_set_meta(io_radix_node_t *node, const char *pattern, size_t pos,
+                             size_t pattern_len, const io_route_meta_t *meta)
 {
     /* Skip leading slash */
     if (pos < pattern_len && pattern[pos] == '/') {
@@ -205,7 +206,7 @@ static int find_and_set_metadata(io_radix_node_t *node, const char *pattern, siz
         if (!node->handler) {
             return -ENOENT;
         }
-        node->metadata = metadata;
+        node->meta = meta;
         return 0;
     }
 
@@ -222,7 +223,7 @@ static int find_and_set_metadata(io_radix_node_t *node, const char *pattern, siz
         if (!node->handler) {
             return -ENOENT;
         }
-        node->metadata = metadata;
+        node->meta = meta;
         return 0;
     }
 
@@ -238,7 +239,7 @@ static int find_and_set_metadata(io_radix_node_t *node, const char *pattern, siz
                 if (!child->handler) {
                     return -ENOENT;
                 }
-                child->metadata = metadata;
+                child->meta = meta;
                 return 0;
             }
         }
@@ -254,7 +255,7 @@ static int find_and_set_metadata(io_radix_node_t *node, const char *pattern, siz
             io_radix_node_t *child = node->children[i];
             if (child->type == IO_NODE_PARAM && strlen(child->param_name) == name_len &&
                 memcmp(child->param_name, name, name_len) == 0) {
-                return find_and_set_metadata(child, pattern, seg_end, pattern_len, metadata);
+                return find_and_set_meta(child, pattern, seg_end, pattern_len, meta);
             }
         }
         return -ENOENT;
@@ -271,19 +272,21 @@ static int find_and_set_metadata(io_radix_node_t *node, const char *pattern, siz
 
         size_t prefix_len = strlen(child->prefix);
         if (prefix_len == seg_len && memcmp(child->prefix, seg, seg_len) == 0) {
-            return find_and_set_metadata(child, pattern, seg_end, pattern_len, metadata);
+            return find_and_set_meta(child, pattern, seg_end, pattern_len, meta);
         }
 
         /*
          * Handle prefix compression: if the child's prefix is longer
          * than the segment, it may span multiple segments (compressed).
          */
+        (void)prefix_len;
     }
 
     return -ENOENT;
 }
 
-int io_router_set_metadata(io_router_t *r, io_method_t method, const char *pattern, void *metadata)
+int io_router_set_meta(io_router_t *r, io_method_t method, const char *pattern,
+                       const io_route_meta_t *meta)
 {
     if (!r || !pattern) {
         return -EINVAL;
@@ -295,5 +298,5 @@ int io_router_set_metadata(io_router_t *r, io_method_t method, const char *patte
     }
 
     size_t pattern_len = strlen(pattern);
-    return find_and_set_metadata(tree->root, pattern, 0, pattern_len, metadata);
+    return find_and_set_meta(tree->root, pattern, 0, pattern_len, meta);
 }

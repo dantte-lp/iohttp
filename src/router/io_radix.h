@@ -9,6 +9,7 @@
 #define IOHTTP_ROUTER_RADIX_H
 
 #include "http/io_request.h" /* for io_param_t, IO_MAX_PATH_PARAMS */
+#include "router/io_route_meta.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -26,6 +27,7 @@ typedef struct io_radix_node {
     char *param_name;                /* for PARAM/WILDCARD nodes */
     void *handler;                   /* opaque handler pointer */
     void *metadata;                  /* route options, oas_operation_t* */
+    const io_route_meta_t *meta;     /* route metadata (separate from opts) */
     struct io_radix_node **children; /* sorted by: STATIC > PARAM > WILDCARD */
     uint32_t child_count;
     uint32_t child_capacity;
@@ -69,7 +71,7 @@ void io_radix_destroy(io_radix_tree_t *tree);
  * @return 0 on success, -ENOMEM, -EINVAL for bad pattern, -EEXIST for conflict.
  */
 [[nodiscard]] int io_radix_insert(io_radix_tree_t *tree, const char *pattern, void *handler,
-                                  void *metadata);
+                                  void *metadata, const io_route_meta_t *meta);
 
 /**
  * @brief Look up a concrete path in the trie.

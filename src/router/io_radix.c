@@ -193,7 +193,8 @@ static const char *next_segment(const char *pattern, size_t pos, size_t pattern_
 }
 
 static int insert_recursive(io_radix_node_t *node, const char *pattern, size_t pos,
-                            size_t pattern_len, void *handler, void *metadata);
+                            size_t pattern_len, void *handler, void *metadata,
+                            const io_route_meta_t *meta);
 
 /**
  * Insert a static segment into the trie at the given node.
@@ -201,7 +202,7 @@ static int insert_recursive(io_radix_node_t *node, const char *pattern, size_t p
  */
 static int insert_static_segment(io_radix_node_t *node, const char *seg, size_t seg_len,
                                  const char *pattern, size_t next_pos, size_t pattern_len,
-                                 void *handler, void *metadata)
+                                 void *handler, void *metadata, const io_route_meta_t *meta)
 {
     /* Look for existing static child with a common prefix */
     for (uint32_t i = 0; i < node->child_count; i++) {
@@ -219,7 +220,7 @@ static int insert_static_segment(io_radix_node_t *node, const char *seg, size_t 
 
         if (cplen == child_prefix_len && cplen == seg_len) {
             /* Exact match: descend into this child */
-            return insert_recursive(child, pattern, next_pos, pattern_len, handler, metadata);
+            return insert_recursive(child, pattern, next_pos, pattern_len, handler, metadata, meta);
         }
 
         if (cplen < child_prefix_len) {
@@ -232,7 +233,7 @@ static int insert_static_segment(io_radix_node_t *node, const char *seg, size_t 
             if (cplen == seg_len) {
                 /* The new segment IS the common prefix */
                 return insert_recursive(intermediate, pattern, next_pos, pattern_len, handler,
-                                        metadata);
+                                        metadata, meta);
             }
 
             /* Create new child for remaining segment */
@@ -248,7 +249,8 @@ static int insert_static_segment(io_radix_node_t *node, const char *seg, size_t 
                 return rc;
             }
 
-            return insert_recursive(new_child, pattern, next_pos, pattern_len, handler, metadata);
+            return insert_recursive(new_child, pattern, next_pos, pattern_len, handler, metadata,
+                                    meta);
         }
 
         /* cplen == child_prefix_len but cplen < seg_len */
@@ -258,7 +260,7 @@ static int insert_static_segment(io_radix_node_t *node, const char *seg, size_t 
         const char *rest = seg + cplen;
         size_t rest_len = seg_len - cplen;
         return insert_static_segment(child, rest, rest_len, pattern, next_pos, pattern_len, handler,
-                                     metadata);
+                                     metadata, meta);
     }
 
     /* No matching static child found; create new one */
@@ -273,11 +275,12 @@ static int insert_static_segment(io_radix_node_t *node, const char *seg, size_t 
         return rc;
     }
 
-    return insert_recursive(new_child, pattern, next_pos, pattern_len, handler, metadata);
+    return insert_recursive(new_child, pattern, next_pos, pattern_len, handler, metadata, meta);
 }
 
 static int insert_recursive(io_radix_node_t *node, const char *pattern, size_t pos,
-                            size_t pattern_len, void *handler, void *metadata)
+                            size_t pattern_len, void *handler, void *metadata,
+                            const io_route_meta_t *meta)
 {
     /* If we've consumed the entire pattern, set handler here */
     if (pos >= pattern_len) {
@@ -286,6 +289,7 @@ static int insert_recursive(io_radix_node_t *node, const char *pattern, size_t p
         }
         node->handler = handler;
         node->metadata = metadata;
+        node->meta = meta;
         io_radix_increment_priority(node);
         return 0;
     }
@@ -301,6 +305,7 @@ static int insert_recursive(io_radix_node_t *node, const char *pattern, size_t p
         }
         node->handler = handler;
         node->metadata = metadata;
+        node->meta = meta;
         io_radix_increment_priority(node);
         return 0;
     }
@@ -330,6 +335,7 @@ static int insert_recursive(io_radix_node_t *node, const char *pattern, size_t p
                 }
                 node->children[i]->handler = handler;
                 node->children[i]->metadata = metadata;
+                node->children[i]->meta = meta;
                 io_radix_increment_priority(node->children[i]);
                 io_radix_increment_priority(node);
                 return 0;
@@ -347,6 +353,7 @@ static int insert_recursive(io_radix_node_t *node, const char *pattern, size_t p
         }
         wc->handler = handler;
         wc->metadata = metadata;
+        wc->meta = meta;
         wc->priority = 1;
 
         int rc = io_radix_node_add_child(node, wc);
@@ -376,7 +383,7 @@ static int insert_recursive(io_radix_node_t *node, const char *pattern, size_t p
                 /* Same param name, descend */
                 io_radix_increment_priority(node);
                 return insert_recursive(node->children[i], pattern, next_pos, pattern_len, handler,
-                                        metadata);
+                                        metadata, meta);
             }
         }
 
@@ -397,13 +404,13 @@ static int insert_recursive(io_radix_node_t *node, const char *pattern, size_t p
         }
 
         io_radix_increment_priority(node);
-        return insert_recursive(param, pattern, next_pos, pattern_len, handler, metadata);
+        return insert_recursive(param, pattern, next_pos, pattern_len, handler, metadata, meta);
     }
 
     /* Static segment */
     io_radix_increment_priority(node);
     return insert_static_segment(node, seg, seg_len, pattern, next_pos, pattern_len, handler,
-                                 metadata);
+                                 metadata, meta);
 }
 
 /* ---- Public API ---- */
@@ -433,7 +440,8 @@ void io_radix_destroy(io_radix_tree_t *tree)
     free(tree);
 }
 
-int io_radix_insert(io_radix_tree_t *tree, const char *pattern, void *handler, void *metadata)
+int io_radix_insert(io_radix_tree_t *tree, const char *pattern, void *handler, void *metadata,
+                    const io_route_meta_t *meta)
 {
     if (!tree || !pattern || !handler) {
         return -EINVAL;
@@ -444,7 +452,7 @@ int io_radix_insert(io_radix_tree_t *tree, const char *pattern, void *handler, v
         return -EINVAL;
     }
 
-    return insert_recursive(tree->root, pattern, 0, pattern_len, handler, metadata);
+    return insert_recursive(tree->root, pattern, 0, pattern_len, handler, metadata, meta);
 }
 
 /* ---- Internal: lookup ---- */

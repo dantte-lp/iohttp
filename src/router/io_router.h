@@ -13,14 +13,16 @@
 #include "http/io_request.h"
 #include "http/io_response.h"
 #include "router/io_radix.h"
+#include "router/io_route_meta.h"
 
 /* Handler function -- returns 0 on success, negative errno on error */
 typedef int (*io_handler_fn)(io_ctx_t *c);
 
 /* Route options -- extensible metadata per-route */
 typedef struct {
-    void *oas_operation;  /* for liboas binding */
-    uint32_t permissions; /* bitmask for auth */
+    const io_route_meta_t *meta; /* route metadata for introspection */
+    void *oas_operation;         /* for liboas binding */
+    uint32_t permissions;        /* bitmask for auth */
     bool auth_required;
 } io_route_opts_t;
 
@@ -79,6 +81,15 @@ void io_router_destroy(io_router_t *router);
 
 [[nodiscard]] int io_router_handle_with(io_router_t *r, io_method_t method, const char *pattern,
                                         io_handler_fn h, const io_route_opts_t *opts);
+
+[[nodiscard]] int io_router_post_with(io_router_t *r, const char *pattern, io_handler_fn h,
+                                      const io_route_opts_t *opts);
+[[nodiscard]] int io_router_put_with(io_router_t *r, const char *pattern, io_handler_fn h,
+                                     const io_route_opts_t *opts);
+[[nodiscard]] int io_router_delete_with(io_router_t *r, const char *pattern, io_handler_fn h,
+                                        const io_route_opts_t *opts);
+[[nodiscard]] int io_router_patch_with(io_router_t *r, const char *pattern, io_handler_fn h,
+                                       const io_route_opts_t *opts);
 
 /* ---- Dispatch ---- */
 

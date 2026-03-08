@@ -46,7 +46,7 @@ void test_radix_insert_static(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/users/list", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/users/list", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
@@ -65,7 +65,7 @@ void test_radix_insert_param(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/users/:id", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/users/:id", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
@@ -84,7 +84,7 @@ void test_radix_insert_wildcard(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/static/*path", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/static/*path", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
@@ -103,9 +103,9 @@ void test_radix_lookup_static(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/api/health", &handler_a, &metadata_a);
+    int rc = io_radix_insert(tree, "/api/health", &handler_a, &metadata_a, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
-    rc = io_radix_insert(tree, "/api/version", &handler_b, &metadata_b);
+    rc = io_radix_insert(tree, "/api/version", &handler_b, &metadata_b, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
@@ -129,7 +129,7 @@ void test_radix_lookup_param_extract(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/users/:id", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/users/:id", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
@@ -151,7 +151,7 @@ void test_radix_lookup_wildcard_extract(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/static/*path", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/static/*path", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
@@ -174,9 +174,9 @@ void test_radix_priority_static_over_param(void)
     TEST_ASSERT_NOT_NULL(tree);
 
     /* Insert param first, then static */
-    int rc = io_radix_insert(tree, "/users/:id", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/users/:id", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
-    rc = io_radix_insert(tree, "/users/list", &handler_b, nullptr);
+    rc = io_radix_insert(tree, "/users/list", &handler_b, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
@@ -202,9 +202,9 @@ void test_radix_priority_param_over_wildcard(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/files/*path", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/files/*path", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
-    rc = io_radix_insert(tree, "/files/:name", &handler_b, nullptr);
+    rc = io_radix_insert(tree, "/files/:name", &handler_b, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;
@@ -230,15 +230,15 @@ void test_radix_conflict_detection(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/:id", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/:id", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     /* Different param name at same position -> -EEXIST */
-    rc = io_radix_insert(tree, "/:name", &handler_b, nullptr);
+    rc = io_radix_insert(tree, "/:name", &handler_b, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(-EEXIST, rc);
 
     /* Same param name is allowed (but same handler -> -EEXIST) */
-    rc = io_radix_insert(tree, "/:id", &handler_c, nullptr);
+    rc = io_radix_insert(tree, "/:id", &handler_c, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(-EEXIST, rc);
 
     io_radix_destroy(tree);
@@ -251,9 +251,9 @@ void test_radix_compressed_prefix(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/api/users", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/api/users", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
-    rc = io_radix_insert(tree, "/api/posts", &handler_b, nullptr);
+    rc = io_radix_insert(tree, "/api/posts", &handler_b, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     /* Both should be found */
@@ -281,7 +281,7 @@ void test_radix_no_match(void)
     io_radix_tree_t *tree = io_radix_create();
     TEST_ASSERT_NOT_NULL(tree);
 
-    int rc = io_radix_insert(tree, "/users", &handler_a, nullptr);
+    int rc = io_radix_insert(tree, "/users", &handler_a, nullptr, nullptr);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     io_radix_match_t match;

@@ -9,14 +9,16 @@
 #ifndef IOHTTP_ROUTER_ROUTE_INSPECT_H
 #define IOHTTP_ROUTER_ROUTE_INSPECT_H
 
+#include "router/io_route_meta.h"
 #include "router/io_router.h"
 
 /* Route info returned during walk */
 typedef struct {
     io_method_t method;
-    const char *pattern; /* reconstructed pattern string from trie */
+    const char *pattern;            /* reconstructed pattern string from trie */
     io_handler_fn handler;
-    void *metadata; /* oas_operation, permissions, etc. */
+    const io_route_opts_t *opts;    /* full route options (may be nullptr) */
+    const io_route_meta_t *meta;    /* route metadata (may be nullptr) */
 } io_route_info_t;
 
 /* Walk callback — return 0 to continue, non-zero to stop */
@@ -40,14 +42,14 @@ typedef int (*io_route_walk_fn)(const io_route_info_t *info, void *ctx);
 uint32_t io_router_route_count(const io_router_t *r);
 
 /**
- * @brief Attach metadata to an existing route.
- * @param r        Router.
- * @param method   HTTP method of the route.
- * @param pattern  Original route pattern (e.g. "/users/:id").
- * @param metadata Pointer to attach.
+ * @brief Attach route metadata to an existing route.
+ * @param r       Router.
+ * @param method  HTTP method of the route.
+ * @param pattern Original route pattern (e.g. "/users/:id").
+ * @param meta    Route metadata to attach.
  * @return 0 on success, -EINVAL on bad args, -ENOENT if route not found.
  */
-[[nodiscard]] int io_router_set_metadata(io_router_t *r, io_method_t method, const char *pattern,
-                                         void *metadata);
+[[nodiscard]] int io_router_set_meta(io_router_t *r, io_method_t method, const char *pattern,
+                                     const io_route_meta_t *meta);
 
 #endif /* IOHTTP_ROUTER_ROUTE_INSPECT_H */

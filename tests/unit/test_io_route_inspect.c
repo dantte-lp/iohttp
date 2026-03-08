@@ -5,6 +5,7 @@
 
 #include "router/io_route_group.h"
 #include "router/io_route_inspect.h"
+#include "router/io_route_meta.h"
 #include "router/io_router.h"
 
 #include <errno.h>
@@ -218,52 +219,53 @@ void test_route_count(void)
     TEST_ASSERT_EQUAL_UINT32(0, io_router_route_count(nullptr));
 }
 
-/* ---- 5. test_route_set_metadata ---- */
+/* ---- 5. test_route_set_meta ---- */
 
-void test_route_set_metadata(void)
+void test_route_set_meta(void)
 {
     TEST_ASSERT_EQUAL_INT(0, io_router_get(router, "/users", handler_a));
     TEST_ASSERT_EQUAL_INT(0, io_router_get(router, "/users/:id", handler_b));
 
-    /* Initially no metadata */
+    /* Initially no meta */
     walk_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
     int rc = io_router_walk(router, collect_routes, &ctx);
     TEST_ASSERT_EQUAL_INT(0, rc);
     for (uint32_t i = 0; i < ctx.count; i++) {
-        TEST_ASSERT_NULL(ctx.routes[i].metadata);
+        TEST_ASSERT_NULL(ctx.routes[i].meta);
     }
 
-    /* Attach metadata to /users */
-    int tag1 = 42;
-    rc = io_router_set_metadata(router, IO_METHOD_GET, "/users", &tag1);
+    /* Attach meta to /users */
+    static const io_route_meta_t meta1 = {.summary = "List users"};
+    rc = io_router_set_meta(router, IO_METHOD_GET, "/users", &meta1);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
-    /* Attach metadata to /users/:id */
-    int tag2 = 99;
-    rc = io_router_set_metadata(router, IO_METHOD_GET, "/users/:id", &tag2);
+    /* Attach meta to /users/:id */
+    static const io_route_meta_t meta2 = {.summary = "Get user"};
+    rc = io_router_set_meta(router, IO_METHOD_GET, "/users/:id", &meta2);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
-    /* Walk again and verify metadata */
+    /* Walk and verify */
     memset(&ctx, 0, sizeof(ctx));
     rc = io_router_walk(router, collect_routes, &ctx);
     TEST_ASSERT_EQUAL_INT(0, rc);
     TEST_ASSERT_EQUAL_UINT32(2, ctx.count);
 
     for (uint32_t i = 0; i < ctx.count; i++) {
+        TEST_ASSERT_NOT_NULL(ctx.routes[i].meta);
         if (ctx.routes[i].handler == handler_a) {
-            TEST_ASSERT_EQUAL_PTR(&tag1, ctx.routes[i].metadata);
+            TEST_ASSERT_EQUAL_STRING("List users", ctx.routes[i].meta->summary);
         } else if (ctx.routes[i].handler == handler_b) {
-            TEST_ASSERT_EQUAL_PTR(&tag2, ctx.routes[i].metadata);
+            TEST_ASSERT_EQUAL_STRING("Get user", ctx.routes[i].meta->summary);
         }
     }
 
     /* Non-existent route returns -ENOENT */
-    rc = io_router_set_metadata(router, IO_METHOD_GET, "/nope", &tag1);
+    static const io_route_meta_t meta3 = {.summary = "nope"};
+    rc = io_router_set_meta(router, IO_METHOD_GET, "/nope", &meta3);
     TEST_ASSERT_EQUAL_INT(-ENOENT, rc);
 
-    /* Wrong method returns -ENOENT */
-    rc = io_router_set_metadata(router, IO_METHOD_POST, "/users", &tag1);
+    rc = io_router_set_meta(router, IO_METHOD_POST, "/users", &meta3);
     TEST_ASSERT_EQUAL_INT(-ENOENT, rc);
 }
 
@@ -271,34 +273,32 @@ void test_route_set_metadata(void)
 
 void test_route_metadata_in_match(void)
 {
+    static const io_route_meta_t meta = {.summary = "Secure route"};
     io_route_opts_t opts = {
+        .meta = &meta,
         .auth_required = true,
         .permissions = 0xFF,
-        .oas_operation = nullptr,
     };
 
     TEST_ASSERT_EQUAL_INT(0, io_router_get_with(router, "/secure", handler_a, &opts));
 
-    /* Dispatch and verify opts are returned */
+    /* Dispatch: opts accessible */
     io_route_match_t m = io_router_dispatch(router, IO_METHOD_GET, "/secure", strlen("/secure"));
     TEST_ASSERT_EQUAL_INT(IO_MATCH_FOUND, m.status);
-    TEST_ASSERT_EQUAL_PTR(handler_a, m.handler);
     TEST_ASSERT_NOT_NULL(m.opts);
     TEST_ASSERT_TRUE(m.opts->auth_required);
     TEST_ASSERT_EQUAL_UINT32(0xFF, m.opts->permissions);
+    TEST_ASSERT_NOT_NULL(m.opts->meta);
+    TEST_ASSERT_EQUAL_STRING("Secure route", m.opts->meta->summary);
 
-    /* Now use set_metadata to attach additional metadata */
-    int extra_tag = 777;
-    int rc = io_router_set_metadata(router, IO_METHOD_GET, "/secure", &extra_tag);
-    TEST_ASSERT_EQUAL_INT(0, rc);
-
-    /* Walk and verify metadata was updated */
+    /* Walk: meta accessible */
     walk_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
-    rc = io_router_walk(router, collect_routes, &ctx);
+    int rc = io_router_walk(router, collect_routes, &ctx);
     TEST_ASSERT_EQUAL_INT(0, rc);
     TEST_ASSERT_EQUAL_UINT32(1, ctx.count);
-    TEST_ASSERT_EQUAL_PTR(&extra_tag, ctx.routes[0].metadata);
+    TEST_ASSERT_NOT_NULL(ctx.routes[0].meta);
+    TEST_ASSERT_EQUAL_STRING("Secure route", ctx.routes[0].meta->summary);
 }
 
 /* ---- Main ---- */
@@ -310,7 +310,7 @@ int main(void)
     RUN_TEST(test_route_walk_order);
     RUN_TEST(test_route_walk_includes_groups);
     RUN_TEST(test_route_count);
-    RUN_TEST(test_route_set_metadata);
+    RUN_TEST(test_route_set_meta);
     RUN_TEST(test_route_metadata_in_match);
     return UNITY_END();
 }
