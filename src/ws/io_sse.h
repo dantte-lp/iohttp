@@ -13,10 +13,10 @@
 /* ---- SSE event structure ---- */
 
 typedef struct {
-    const char *event;   /* event type (optional, nullptr to omit) */
-    const char *data;    /* event data (required) */
-    const char *id;      /* event ID (optional, nullptr to omit) */
-    uint32_t retry_ms;   /* reconnect interval hint (0 = omit) */
+    const char *event; /* event type (optional, nullptr to omit) */
+    const char *data;  /* event data (required) */
+    const char *id;    /* event ID (optional, nullptr to omit) */
+    uint32_t retry_ms; /* reconnect interval hint (0 = omit) */
 } io_sse_event_t;
 
 /* ---- SSE stream context ---- */
@@ -60,8 +60,7 @@ void io_sse_stream_destroy(io_sse_stream_t *stream);
  * @param event   Event to format.
  * @return 0 on success, -EINVAL if data is nullptr, -ENOMEM if buffer grow fails.
  */
-[[nodiscard]] int io_sse_format_event(io_sse_stream_t *stream,
-                                      const io_sse_event_t *event);
+[[nodiscard]] int io_sse_format_event(io_sse_stream_t *stream, const io_sse_event_t *event);
 
 /**
  * @brief Format a comment (heartbeat) into the stream buffer.
@@ -69,8 +68,7 @@ void io_sse_stream_destroy(io_sse_stream_t *stream);
  * @param comment  Comment text (without leading colon).
  * @return 0 on success, -EINVAL if comment is nullptr, -ENOMEM if buffer grow fails.
  */
-[[nodiscard]] int io_sse_format_comment(io_sse_stream_t *stream,
-                                        const char *comment);
+[[nodiscard]] int io_sse_format_comment(io_sse_stream_t *stream, const char *comment);
 
 /**
  * @brief Get the formatted data and reset the stream buffer.
@@ -78,7 +76,6 @@ void io_sse_stream_destroy(io_sse_stream_t *stream);
  * @param data_out  Output pointer to formatted data.
  * @param len_out   Output data length.
  */
-void io_sse_stream_flush(io_sse_stream_t *stream, const uint8_t **data_out,
-                         size_t *len_out);
+void io_sse_stream_flush(io_sse_stream_t *stream, const uint8_t **data_out, size_t *len_out);
 
 #endif /* IOHTTP_WS_SSE_H */

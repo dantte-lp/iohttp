@@ -13,26 +13,26 @@
 /* WebSocket opcodes (RFC 6455 §11.8) */
 typedef enum : uint8_t {
     IO_WS_OP_CONTINUATION = 0x0,
-    IO_WS_OP_TEXT         = 0x1,
-    IO_WS_OP_BINARY       = 0x2,
-    IO_WS_OP_CLOSE        = 0x8,
-    IO_WS_OP_PING         = 0x9,
-    IO_WS_OP_PONG         = 0xA,
+    IO_WS_OP_TEXT = 0x1,
+    IO_WS_OP_BINARY = 0x2,
+    IO_WS_OP_CLOSE = 0x8,
+    IO_WS_OP_PING = 0x9,
+    IO_WS_OP_PONG = 0xA,
 } io_ws_opcode_t;
 
 /* WebSocket close codes (RFC 6455 §7.4.1) */
-constexpr uint16_t IO_WS_CLOSE_NORMAL     = 1000;
+constexpr uint16_t IO_WS_CLOSE_NORMAL = 1000;
 constexpr uint16_t IO_WS_CLOSE_GOING_AWAY = 1001;
-constexpr uint16_t IO_WS_CLOSE_PROTOCOL   = 1002;
-constexpr uint16_t IO_WS_CLOSE_INVALID    = 1003;
-constexpr uint16_t IO_WS_CLOSE_TOO_BIG    = 1009;
+constexpr uint16_t IO_WS_CLOSE_PROTOCOL = 1002;
+constexpr uint16_t IO_WS_CLOSE_INVALID = 1003;
+constexpr uint16_t IO_WS_CLOSE_TOO_BIG = 1009;
 
 /* Maximum sizes */
-constexpr size_t IO_WS_MAX_FRAME_HEADER     = 14; /* 2 + 4(mask) + 8(64-bit len) */
-constexpr size_t IO_WS_MAX_CONTROL_PAYLOAD  = 125;
-constexpr size_t IO_WS_GUID_LEN            = 36;
-constexpr size_t IO_WS_ACCEPT_KEY_LEN      = 28; /* base64(SHA-1) */
-constexpr size_t IO_WS_DEFAULT_MAX_MSG      = 65536;
+constexpr size_t IO_WS_MAX_FRAME_HEADER = 14; /* 2 + 4(mask) + 8(64-bit len) */
+constexpr size_t IO_WS_MAX_CONTROL_PAYLOAD = 125;
+constexpr size_t IO_WS_GUID_LEN = 36;
+constexpr size_t IO_WS_ACCEPT_KEY_LEN = 28; /* base64(SHA-1) */
+constexpr size_t IO_WS_DEFAULT_MAX_MSG = 65536;
 
 /* WebSocket frame (parsed) */
 typedef struct {
@@ -90,8 +90,7 @@ typedef struct {
  * @param len       Payload length.
  * @return Total frame size on success, -ENOSPC if buffer too small.
  */
-[[nodiscard]] int io_ws_frame_encode(uint8_t *buf, size_t buf_size,
-                                     io_ws_opcode_t opcode, bool fin,
+[[nodiscard]] int io_ws_frame_encode(uint8_t *buf, size_t buf_size, io_ws_opcode_t opcode, bool fin,
                                      const uint8_t *payload, size_t len);
 
 /**
@@ -102,8 +101,7 @@ typedef struct {
  * @return Total consumed bytes on success, -EAGAIN if incomplete,
  *         -EINVAL if malformed, -E2BIG if payload exceeds limit.
  */
-[[nodiscard]] int io_ws_frame_decode(const uint8_t *buf, size_t buf_len,
-                                     io_ws_frame_t *frame);
+[[nodiscard]] int io_ws_frame_decode(const uint8_t *buf, size_t buf_len, io_ws_frame_t *frame);
 
 /**
  * @brief Apply/remove XOR mask on payload data (in-place).

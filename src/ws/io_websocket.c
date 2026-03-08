@@ -61,8 +61,7 @@ int io_ws_compute_accept(const char *client_key, char *accept_out)
 
     /* Base64 encode */
     unsigned int out_len = IO_WS_ACCEPT_KEY_LEN + 1;
-    ret = Base64_Encode_NoNl(hash, WC_SHA_DIGEST_SIZE,
-                             (unsigned char *)accept_out, &out_len);
+    ret = Base64_Encode_NoNl(hash, WC_SHA_DIGEST_SIZE, (unsigned char *)accept_out, &out_len);
     if (ret != 0) {
         return -EINVAL;
     }
@@ -71,12 +70,11 @@ int io_ws_compute_accept(const char *client_key, char *accept_out)
     return 0;
 }
 
-int io_ws_validate_upgrade(const char *method, const char *upgrade_hdr,
-                           const char *conn_hdr, const char *ws_key,
-                           const char *ws_version)
+int io_ws_validate_upgrade(const char *method, const char *upgrade_hdr, const char *conn_hdr,
+                           const char *ws_key, const char *ws_version)
 {
-    if (method == nullptr || upgrade_hdr == nullptr || conn_hdr == nullptr ||
-        ws_key == nullptr || ws_version == nullptr) {
+    if (method == nullptr || upgrade_hdr == nullptr || conn_hdr == nullptr || ws_key == nullptr ||
+        ws_version == nullptr) {
         return -EINVAL;
     }
 
@@ -110,8 +108,8 @@ int io_ws_validate_upgrade(const char *method, const char *upgrade_hdr,
 
 /* ---- Frame encoding ---- */
 
-int io_ws_frame_encode(uint8_t *buf, size_t buf_size, io_ws_opcode_t opcode,
-                       bool fin, const uint8_t *payload, size_t len)
+int io_ws_frame_encode(uint8_t *buf, size_t buf_size, io_ws_opcode_t opcode, bool fin,
+                       const uint8_t *payload, size_t len)
 {
     if (buf == nullptr) {
         return -EINVAL;

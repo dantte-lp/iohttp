@@ -12,11 +12,10 @@
 
 constexpr size_t IO_SSE_INITIAL_BUF = 1024;
 
-static const char IO_SSE_HEADERS[] =
-    "Content-Type: text/event-stream; charset=utf-8\r\n"
-    "Cache-Control: no-cache\r\n"
-    "Connection: keep-alive\r\n"
-    "\r\n";
+static const char IO_SSE_HEADERS[] = "Content-Type: text/event-stream; charset=utf-8\r\n"
+                                     "Cache-Control: no-cache\r\n"
+                                     "Connection: keep-alive\r\n"
+                                     "\r\n";
 
 /* ---- Internal helpers ---- */
 
@@ -151,8 +150,7 @@ int io_sse_format_event(io_sse_stream_t *stream, const io_sse_event_t *event)
     /* retry field */
     if (event->retry_ms > 0) {
         char retry_buf[32];
-        int n = snprintf(retry_buf, sizeof(retry_buf), "retry: %u\n",
-                         (unsigned)event->retry_ms);
+        int n = snprintf(retry_buf, sizeof(retry_buf), "retry: %u\n", (unsigned)event->retry_ms);
         if (n < 0) {
             return -EINVAL;
         }
@@ -230,8 +228,7 @@ int io_sse_format_comment(io_sse_stream_t *stream, const char *comment)
     return 0;
 }
 
-void io_sse_stream_flush(io_sse_stream_t *stream, const uint8_t **data_out,
-                         size_t *len_out)
+void io_sse_stream_flush(io_sse_stream_t *stream, const uint8_t **data_out, size_t *len_out)
 {
     if (stream == nullptr) {
         if (data_out != nullptr) {

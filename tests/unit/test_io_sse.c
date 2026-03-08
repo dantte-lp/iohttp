@@ -32,8 +32,7 @@ void test_sse_format_headers(void)
     TEST_ASSERT_GREATER_THAN(0, rc);
 
     const char *output = (const char *)buf;
-    TEST_ASSERT_NOT_NULL(
-        strstr(output, "Content-Type: text/event-stream; charset=utf-8\r\n"));
+    TEST_ASSERT_NOT_NULL(strstr(output, "Content-Type: text/event-stream; charset=utf-8\r\n"));
     TEST_ASSERT_NOT_NULL(strstr(output, "Cache-Control: no-cache\r\n"));
     TEST_ASSERT_NOT_NULL(strstr(output, "Connection: keep-alive\r\n"));
 
