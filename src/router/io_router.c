@@ -6,6 +6,7 @@
 #include "router/io_router.h"
 #include "router/io_radix.h"
 
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,8 +15,19 @@
 /* Number of method slots (IO_METHOD_GET through IO_METHOD_CONNECT) */
 constexpr uint32_t ROUTER_METHOD_COUNT = 9;
 
+constexpr uint32_t ROUTER_INITIAL_GROUP_CAP = 8;
+
+/* Group entry with destructor to avoid circular dependency */
+typedef struct {
+    void *group;
+    void (*destroy)(void *);
+} io_owned_group_t;
+
 struct io_router {
     io_radix_tree_t *trees[9]; /* one per io_method_t value */
+    io_owned_group_t *groups;  /* owned route groups */
+    uint32_t group_count;
+    uint32_t group_capacity;
 };
 
 /* ---- Path normalization ---- */
@@ -189,6 +201,12 @@ void io_router_destroy(io_router_t *router)
         return;
     }
 
+    /* Destroy owned groups (top-level only; they destroy their subgroups) */
+    for (uint32_t i = 0; i < router->group_count; i++) {
+        router->groups[i].destroy(router->groups[i].group);
+    }
+    free(router->groups);
+
     for (uint32_t i = 0; i < ROUTER_METHOD_COUNT; i++) {
         io_radix_destroy(router->trees[i]);
     }
@@ -242,6 +260,40 @@ int io_router_get_with(io_router_t *r, const char *pattern,
                        io_handler_fn h, const io_route_opts_t *opts)
 {
     return router_add_route(r, IO_METHOD_GET, pattern, h, opts);
+}
+
+int io_router_handle_with(io_router_t *r, io_method_t method,
+                          const char *pattern, io_handler_fn h,
+                          const io_route_opts_t *opts)
+{
+    return router_add_route(r, method, pattern, h, opts);
+}
+
+int io_router_own_group(io_router_t *r, void *group,
+                        void (*destroy)(void *))
+{
+    if (!r || !group || !destroy) {
+        return -EINVAL;
+    }
+
+    if (r->group_count >= r->group_capacity) {
+        uint32_t new_cap = r->group_capacity == 0
+                               ? ROUTER_INITIAL_GROUP_CAP
+                               : r->group_capacity * 2;
+        io_owned_group_t *new_arr = realloc(
+            r->groups, (size_t)new_cap * sizeof(*new_arr));
+        if (!new_arr) {
+            return -ENOMEM;
+        }
+        r->groups = new_arr;
+        r->group_capacity = new_cap;
+    }
+
+    r->groups[r->group_count++] = (io_owned_group_t){
+        .group = group,
+        .destroy = destroy,
+    };
+    return 0;
 }
 
 /* ---- Public API: dispatch ---- */

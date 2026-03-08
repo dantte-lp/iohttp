@@ -382,6 +382,16 @@ target_link_libraries(io_router PUBLIC io_radix io_request)
 io_add_test(test_io_router tests/unit/test_io_router.c io_router io_radix io_request io_response)
 
 # ============================================================================
+# Sprint 4: Route groups
+# ============================================================================
+
+add_library(io_route_group STATIC src/router/io_route_group.c)
+target_include_directories(io_route_group PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_route_group PUBLIC io_router)
+
+io_add_test(test_io_route_group tests/unit/test_io_route_group.c io_route_group io_router io_radix io_request io_response)
+
+# ============================================================================
 # Sprint 4: Typed parameter extraction
 # ============================================================================
 

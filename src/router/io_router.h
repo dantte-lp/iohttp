@@ -83,6 +83,10 @@ void io_router_destroy(io_router_t *router);
                                      io_handler_fn h,
                                      const io_route_opts_t *opts);
 
+[[nodiscard]] int io_router_handle_with(io_router_t *r, io_method_t method,
+                                        const char *pattern, io_handler_fn h,
+                                        const io_route_opts_t *opts);
+
 /* ---- Dispatch ---- */
 
 /**
@@ -97,6 +101,18 @@ void io_router_destroy(io_router_t *router);
                                                   io_method_t method,
                                                   const char *path,
                                                   size_t path_len);
+
+/* ---- Group ownership (used by io_route_group.c) ---- */
+
+/**
+ * @brief Register a group as owned by this router (freed on destroy).
+ * @param r       Router.
+ * @param group   Group pointer (opaque).
+ * @param destroy Destructor function for the group.
+ * @return 0 on success, negative errno on error.
+ */
+[[nodiscard]] int io_router_own_group(io_router_t *r, void *group,
+                                      void (*destroy)(void *));
 
 /* ---- Path normalization (public for testing) ---- */
 
