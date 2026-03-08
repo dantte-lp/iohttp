@@ -4,8 +4,8 @@
  */
 
 #include "router/io_router.h"
+#include "middleware/io_middleware.h"
 #include "router/io_radix.h"
-
 
 #include <errno.h>
 #include <stdio.h>
@@ -28,6 +28,11 @@ struct io_router {
     io_owned_group_t *groups;  /* owned route groups */
     uint32_t group_count;
     uint32_t group_capacity;
+    io_middleware_fn global_mw[IO_MAX_GLOBAL_MIDDLEWARE];
+    uint32_t global_mw_count;
+    io_error_handler_fn error_handler;
+    io_handler_fn not_found_handler;
+    io_handler_fn method_not_allowed_handler;
 };
 
 /* ---- Path normalization ---- */
@@ -294,6 +299,91 @@ int io_router_own_group(io_router_t *r, void *group,
         .destroy = destroy,
     };
     return 0;
+}
+
+/* ---- Internal accessors (used by io_route_inspect.c) ---- */
+
+io_radix_tree_t *io_router_get_tree(const io_router_t *r, io_method_t method)
+{
+    if (!r || method >= ROUTER_METHOD_COUNT) {
+        return nullptr;
+    }
+    return r->trees[method];
+}
+
+uint32_t io_router_method_count(void)
+{
+    return ROUTER_METHOD_COUNT;
+}
+
+/* ---- Middleware & error handler registration ---- */
+
+int io_router_use(io_router_t *r, io_middleware_fn mw)
+{
+    if (!r || !mw) {
+        return -EINVAL;
+    }
+    if (r->global_mw_count >= IO_MAX_GLOBAL_MIDDLEWARE) {
+        return -ENOSPC;
+    }
+    r->global_mw[r->global_mw_count++] = mw;
+    return 0;
+}
+
+void io_router_set_error_handler(io_router_t *r, io_error_handler_fn h)
+{
+    if (r) {
+        r->error_handler = h;
+    }
+}
+
+void io_router_set_not_found(io_router_t *r, io_handler_fn h)
+{
+    if (r) {
+        r->not_found_handler = h;
+    }
+}
+
+void io_router_set_method_not_allowed(io_router_t *r, io_handler_fn h)
+{
+    if (r) {
+        r->method_not_allowed_handler = h;
+    }
+}
+
+io_middleware_fn *io_router_global_middleware(const io_router_t *r,
+                                              uint32_t *count)
+{
+    if (!r || !count) {
+        return nullptr;
+    }
+    *count = r->global_mw_count;
+    /* Cast away const — caller must not modify through this pointer */
+    return (io_middleware_fn *)r->global_mw;
+}
+
+io_error_handler_fn io_router_error_handler(const io_router_t *r)
+{
+    if (!r) {
+        return nullptr;
+    }
+    return r->error_handler;
+}
+
+io_handler_fn io_router_not_found_handler(const io_router_t *r)
+{
+    if (!r) {
+        return nullptr;
+    }
+    return r->not_found_handler;
+}
+
+io_handler_fn io_router_method_not_allowed_handler(const io_router_t *r)
+{
+    if (!r) {
+        return nullptr;
+    }
+    return r->method_not_allowed_handler;
 }
 
 /* ---- Public API: dispatch ---- */

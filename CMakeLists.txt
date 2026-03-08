@@ -396,3 +396,23 @@ io_add_test(test_io_route_group tests/unit/test_io_route_group.c io_route_group 
 # ============================================================================
 
 io_add_test(test_io_params tests/unit/test_io_params.c io_request)
+
+# ============================================================================
+# Sprint 4: Route introspection
+# ============================================================================
+
+add_library(io_route_inspect STATIC src/router/io_route_inspect.c)
+target_include_directories(io_route_inspect PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_route_inspect PUBLIC io_router io_radix)
+
+io_add_test(test_io_route_inspect tests/unit/test_io_route_inspect.c io_route_inspect io_router io_route_group io_radix io_request io_response)
+
+# ============================================================================
+# Sprint 4: Middleware chain
+# ============================================================================
+
+add_library(io_middleware STATIC src/middleware/io_middleware.c)
+target_include_directories(io_middleware PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_middleware PUBLIC io_router io_route_group io_request io_response)
+
+io_add_test(test_io_middleware tests/unit/test_io_middleware.c io_middleware io_router io_route_group io_radix io_request io_response)

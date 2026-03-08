@@ -11,6 +11,7 @@
 
 #include "http/io_request.h"
 #include "http/io_response.h"
+#include "router/io_radix.h"
 
 /* Handler function -- returns 0 on success, negative errno on error */
 typedef int (*io_handler_fn)(io_request_t *req, io_response_t *resp);
@@ -113,6 +114,22 @@ void io_router_destroy(io_router_t *router);
  */
 [[nodiscard]] int io_router_own_group(io_router_t *r, void *group,
                                       void (*destroy)(void *));
+
+/* ---- Internal accessors (used by io_route_inspect.c) ---- */
+
+/**
+ * @brief Get the radix tree for a specific HTTP method.
+ * @param r      Router.
+ * @param method HTTP method index.
+ * @return Radix tree pointer, or nullptr if none registered.
+ */
+io_radix_tree_t *io_router_get_tree(const io_router_t *r, io_method_t method);
+
+/**
+ * @brief Get the number of method slots in the router.
+ * @return Method count (always 9).
+ */
+uint32_t io_router_method_count(void);
 
 /* ---- Path normalization (public for testing) ---- */
 
