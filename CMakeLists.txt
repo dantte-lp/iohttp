@@ -331,3 +331,12 @@ target_link_libraries(io_http1 PUBLIC io_request)
 target_compile_options(io_http1 PRIVATE -Wno-sign-conversion -Wno-conversion -Wno-undef)
 
 io_add_test(test_io_http1 tests/unit/test_io_http1.c io_http1 io_request io_response)
+
+# ============================================================================
+# Sprint 3: PROXY protocol decoder
+# ============================================================================
+
+add_library(io_proxy_proto STATIC src/http/io_proxy_proto.c)
+target_include_directories(io_proxy_proto PUBLIC ${CMAKE_SOURCE_DIR}/src)
+
+io_add_test(test_proxy_proto tests/unit/test_proxy_proto.c io_proxy_proto)
