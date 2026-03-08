@@ -15,7 +15,7 @@ ARG NGHTTP2_VERSION=1.68.0
 ARG NGTCP2_VERSION=1.21.0
 ARG NGHTTP3_VERSION=1.15.0
 ARG WSLAY_VERSION=1.1.1
-ARG SFPARSE_VERSION=0.3.0
+ARG SFPARSE_COMMIT=HEAD
 
 # Enable CodeReady Builder repo (for -devel packages not in baseos/appstream)
 RUN dnf install -y oraclelinux-developer-release-el10 && \
@@ -284,18 +284,11 @@ RUN cd /tmp && \
 # Structured Fields: sfparse (RFC 9651)
 # ═══════════════════════════════════════════════════════
 
+# sfparse is header-only — just install the header
 RUN cd /tmp && \
-    wget https://github.com/ngtcp2/sfparse/releases/download/v${SFPARSE_VERSION}/sfparse-${SFPARSE_VERSION}.tar.gz && \
-    tar xzf sfparse-${SFPARSE_VERSION}.tar.gz && \
-    cd sfparse-${SFPARSE_VERSION} && \
-    mkdir build && cd build && \
-    cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/usr/local && \
-    make -j$(nproc) && \
-    make install && \
-    ldconfig && \
-    cd /tmp && rm -rf sfparse-*
+    git clone --depth 1 https://github.com/ngtcp2/sfparse.git && \
+    cp sfparse/sfparse.h /usr/local/include/ && \
+    rm -rf /tmp/sfparse
 
 # ═══════════════════════════════════════════════════════
 # JSON: yyjson
@@ -336,26 +329,7 @@ RUN cd /tmp && \
 RUN pip3 install codechecker && \
     ln -sf /usr/local/bin/CodeChecker /usr/local/bin/codechecker 2>/dev/null || true
 
-# Install PVS-Studio (free for open-source, b4all license)
-RUN cd /tmp && \
-    curl -fsSL -o pvs-studio.tgz \
-        https://files.pvs-studio.ru/pvs-studio-7.41.103683.741-x86_64.tgz && \
-    tar xzf pvs-studio.tgz && \
-    cd pvs-studio-* && \
-    cp -a bin/* /usr/local/bin/ && \
-    cp -a etc/* /usr/local/etc/ 2>/dev/null || true && \
-    mkdir -p /usr/local/share/pvs-studio && \
-    cp -a share/* /usr/local/share/ 2>/dev/null || true && \
-    cd /tmp && rm -rf pvs-studio* && \
-    pvs-studio --version
-
-# Activate PVS-Studio b4all license (free for open-source)
-RUN pvs-studio-analyzer credentials "PVS-Studio Free" "SRUG-709S-2Q5H-EE03"
-
-# Configure ccache defaults
-RUN mkdir -p /root/.config/ccache && \
-    printf "max_size = 2G\ncompression = true\ncompression_level = 6\n" \
-        > /root/.config/ccache/ccache.conf
+# PVS-Studio removed — b4all license expired, not critical for dev workflow
 
 # Update ldconfig cache
 RUN ldconfig
