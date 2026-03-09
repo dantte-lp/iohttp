@@ -55,3 +55,6 @@ PVS-Studio.log
 
 # Benchmark results (JSON output)
 tests/bench/*.json
+
+# Git worktrees
+.worktrees/
