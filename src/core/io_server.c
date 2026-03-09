@@ -565,8 +565,7 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                     if (srv->config.proxy_protocol) {
                         (void)io_conn_transition(conn, IO_CONN_PROXY_HEADER);
                     } else if (srv->tls_ctx != nullptr) {
-                        conn->tls_ctx =
-                            io_tls_conn_create(srv->tls_ctx, client_fd);
+                        conn->tls_ctx = io_tls_conn_create(srv->tls_ctx, client_fd);
                         conn->tls_done = false;
                         (void)io_conn_transition(conn, IO_CONN_TLS_HANDSHAKE);
                     } else {
@@ -614,8 +613,7 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
             /* ---- PROXY protocol path ---- */
             if (conn->state == IO_CONN_PROXY_HEADER) {
                 io_proxy_result_t proxy_result;
-                int proxy_ret = io_proxy_decode(
-                    conn->recv_buf, conn->recv_len, &proxy_result);
+                int proxy_ret = io_proxy_decode(conn->recv_buf, conn->recv_len, &proxy_result);
 
                 if (proxy_ret > 0) {
                     /* PROXY header decoded — store addresses */
@@ -626,27 +624,20 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                     size_t consumed = (size_t)proxy_ret;
                     size_t remaining = conn->recv_len - consumed;
                     if (remaining > 0) {
-                        memmove(conn->recv_buf,
-                                conn->recv_buf + consumed, remaining);
+                        memmove(conn->recv_buf, conn->recv_buf + consumed, remaining);
                     }
                     conn->recv_len = remaining;
 
-                    IO_LOG_DEBUG("server",
-                                 "conn %u: PROXY v%u from %s",
-                                 conn->id, proxy_result.version,
-                                 proxy_result.is_local ? "LOCAL"
-                                                       : "remote");
+                    IO_LOG_DEBUG("server", "conn %u: PROXY v%u from %s", conn->id,
+                                 proxy_result.version, proxy_result.is_local ? "LOCAL" : "remote");
 
                     /* Transition to next state */
                     if (srv->tls_ctx != nullptr) {
-                        conn->tls_ctx = io_tls_conn_create(
-                            srv->tls_ctx, conn->fd);
+                        conn->tls_ctx = io_tls_conn_create(srv->tls_ctx, conn->fd);
                         conn->tls_done = false;
-                        (void)io_conn_transition(
-                            conn, IO_CONN_TLS_HANDSHAKE);
+                        (void)io_conn_transition(conn, IO_CONN_TLS_HANDSHAKE);
                     } else {
-                        (void)io_conn_transition(
-                            conn, IO_CONN_HTTP_ACTIVE);
+                        (void)io_conn_transition(conn, IO_CONN_HTTP_ACTIVE);
                     }
 
                     /* If no remaining data, arm recv for more */

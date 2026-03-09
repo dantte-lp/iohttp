@@ -30,7 +30,8 @@ static uint16_t get_bound_port(int fd)
 {
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
-    getsockname(fd, (struct sockaddr *)&addr, &len);
+    int ret = getsockname(fd, (struct sockaddr *)&addr, &len);
+    TEST_ASSERT_EQUAL_INT(0, ret);
     return ntohs(addr.sin_port);
 }
 
@@ -40,11 +41,11 @@ static int connect_to(uint16_t port)
     if (fd < 0) {
         return -errno;
     }
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(port),
-        .sin_addr.s_addr = htonl(INADDR_LOOPBACK),
-    };
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(fd);
         return -errno;

@@ -15,8 +15,12 @@
 
 #include <unity.h>
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void)
+{
+}
+void tearDown(void)
+{
+}
 
 static io_server_config_t make_config(uint16_t port)
 {
@@ -34,19 +38,25 @@ static uint16_t get_bound_port(int listen_fd)
 {
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
-    getsockname(listen_fd, (struct sockaddr *)&addr, &len);
+    int ret = getsockname(listen_fd, (struct sockaddr *)&addr, &len);
+    TEST_ASSERT_EQUAL_INT(0, ret);
     return ntohs(addr.sin_port);
 }
 
 static int connect_client(uint16_t port)
 {
     int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(port),
-    };
+    TEST_ASSERT_TRUE(fd >= 0);
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+
+    int ret = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    TEST_ASSERT_EQUAL_INT(0, ret);
+
     return fd;
 }
 
@@ -71,10 +81,8 @@ void test_proxy_v1_tcp4_pipeline(void)
     TEST_ASSERT_TRUE(client_fd >= 0);
 
     /* Send PROXY v1 header followed by HTTP request */
-    const char *proxy_header =
-        "PROXY TCP4 192.168.1.1 192.168.1.2 12345 80\r\n";
-    const char *http_req =
-        "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    const char *proxy_header = "PROXY TCP4 192.168.1.1 192.168.1.2 12345 80\r\n";
+    const char *http_req = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
 
     send(client_fd, proxy_header, strlen(proxy_header), 0);
     send(client_fd, http_req, strlen(http_req), 0);
@@ -116,8 +124,7 @@ void test_proxy_invalid_header_closes_connection(void)
     }
 
     /* Connection should be closed */
-    TEST_ASSERT_EQUAL_UINT32(
-        0, io_conn_pool_active(io_server_pool(srv)));
+    TEST_ASSERT_EQUAL_UINT32(0, io_conn_pool_active(io_server_pool(srv)));
 
     close(client_fd);
     io_server_destroy(srv);
@@ -139,8 +146,7 @@ void test_non_proxy_listener_ignores_proxy_headers(void)
     TEST_ASSERT_TRUE(client_fd >= 0);
 
     /* Send normal HTTP request (no PROXY) */
-    const char *http_req =
-        "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    const char *http_req = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
     send(client_fd, http_req, strlen(http_req), 0);
 
     for (int i = 0; i < 10; i++) {
