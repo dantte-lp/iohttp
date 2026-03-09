@@ -53,9 +53,10 @@ multi-reactor ring-per-thread (production mode).
 | Component | LOC | Description |
 |-----------|-----|-------------|
 | `io_loop.{h,c}` | ~500 | io_uring ring setup, SQE submission, CQE reaping, timer wheel |
-| `io_server.{h,c}` | ~350 | Server lifecycle: create, configure, run, shutdown |
+| `io_server.{h,c}` | ~1055 | Server lifecycle, linked timeouts, signalfd shutdown, request limits, request ID |
 | `io_buffer.{h,c}` | ~250 | Provided buffer ring management, buffer pool |
-| `io_conn.{h,c}` | ~260 | Connection state machine, timeout tracking |
+| `io_conn.{h,c}` | ~385 | Connection state machine, timeout phase tracking, PROXY state |
+| `io_log.{h,c}` | ~165 | Structured logging with levels, custom sink callbacks |
 
 **Key io_uring features used:**
 - `IORING_OP_ACCEPT` with `IORING_ACCEPT_MULTISHOT` — one SQE accepts all connections
@@ -438,23 +439,24 @@ a threshold (e.g., 100 RSTs/second), terminate the connection.
 
 ## LOC Summary
 
-As of Sprint 7 (HTTP/2 done). Source + headers, excluding vendored picohttpparser.
+As of Sprint 12 (production hardening done). Source + headers, excluding vendored picohttpparser.
 
 | Category | Own Code | Status | External Libraries |
 |----------|----------|--------|--------------------|
-| I/O Engine (core) | ~1360 | done | liburing ~3K |
+| I/O Engine (core) | ~2100 | done | liburing ~3K |
+| Structured Logging | ~165 | done | -- |
 | TLS Integration | ~460 | done | wolfSSL (large) |
 | HTTP/1.1 | ~540 | done | picohttpparser ~800 |
 | HTTP/2 | ~770 | done | nghttp2 ~18K |
-| HTTP/3 + QUIC | planned | — | ngtcp2 ~28K + nghttp3 ~12K |
-| Router | ~1500 | done | — |
-| Middleware | ~690 | done | — |
+| HTTP/3 + QUIC | planned | -- | ngtcp2 ~28K + nghttp3 ~12K |
+| Router | ~1500 | done | -- |
+| Middleware | ~690 | done | -- |
 | Static Files + SPA | ~940 | done | zlib, brotli |
 | WebSocket + SSE | ~590 | done | wslay ~3K |
-| Multipart + PROXY | ~730 | done | — |
-| JSON API + Logging + Metrics | planned | — | yyjson ~8K |
-| liboas Adapter | planned | — | liboas (separate project) |
-| Headers (.h) | ~2410 | — | — |
-| **Total own code** | **~9990** | S1-S7 | |
-| **Tests** | **~9940** | 29 tests | |
+| Multipart + PROXY | ~730 | done | -- |
+| JSON API + Metrics | planned | -- | yyjson ~8K |
+| liboas Adapter | planned | -- | liboas (separate project) |
+| Headers (.h) | ~2960 | -- | -- |
+| **Total own code** | **~11450** | S1-S12 | |
+| **Tests** | **~13830** | 46 tests | |
 | **Projected total** | **~15-18K** | all sprints | **~70K+** |

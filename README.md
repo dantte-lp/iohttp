@@ -1,3 +1,6 @@
+[![en](https://img.shields.io/badge/lang-en-blue.svg)](README.md)
+[![ru](https://img.shields.io/badge/lang-ru-green.svg)](README.ru.md)
+
 <p align="center">
   <h1 align="center">iohttp</h1>
   <p align="center">Embedded HTTP server for C23 — io_uring · wolfSSL · HTTP/1.1·2·3</p>
@@ -9,6 +12,7 @@
   <img src="https://img.shields.io/badge/Linux-6.7%2B-orange?style=for-the-badge&logo=linux&logoColor=white" alt="Linux">
   <img src="https://img.shields.io/badge/io__uring-native-green?style=for-the-badge" alt="io_uring">
   <img src="https://img.shields.io/badge/wolfSSL-TLS%201.3-purple?style=for-the-badge" alt="wolfSSL">
+  <img src="https://img.shields.io/badge/PROXY%20protocol-v1%2Fv2-teal?style=for-the-badge" alt="PROXY Protocol">
   <img src="https://img.shields.io/badge/version-0.1.0--dev-red?style=for-the-badge" alt="Version">
 </p>
 
@@ -32,31 +36,31 @@ ctest --preset clang-debug
 
 ```mermaid
 graph TB
-    Client[Client] -->|TCP/UDP| Accept[Multishot Accept]
-    Accept --> TLS[wolfSSL TLS 1.3]
-    TLS --> ALPN{ALPN}
-    ALPN -->|h2| H2[nghttp2 HTTP/2]
-    ALPN -->|http/1.1| H1[picohttpparser HTTP/1.1]
-    Client -->|QUIC/UDP| QUIC[ngtcp2 + wolfSSL]
-    QUIC --> H3[nghttp3 HTTP/3]
-    H1 --> Router[Router — longest-prefix match]
+    Client[Client] -->|TCP| Accept
+    Client -->|QUIC/UDP| QUIC
+
+    subgraph Ring[io_uring Event Loop]
+        Accept[Multishot Accept] --> Proxy{PROXY?}
+        Proxy -->|yes| PP[PROXY v1/v2 Decode]
+        Proxy -->|no| TLS
+        PP --> TLS[wolfSSL TLS 1.3]
+        TLS --> ALPN{ALPN}
+        ALPN -->|h2| H2[nghttp2]
+        ALPN -->|http/1.1| H1[picohttpparser]
+        QUIC[ngtcp2 + wolfSSL] --> H3[nghttp3]
+        SIG[signalfd] -->|SIGTERM| Drain[Graceful Drain]
+        SIG -->|SIGQUIT| Stop[Immediate Stop]
+    end
+
+    H1 --> Router[Radix Trie Router]
     H2 --> Router
     H3 --> Router
     Router --> MW[Middleware Chain]
     MW --> Handler[Handler]
-    Handler --> Static[Static Files / #embed]
-    Handler --> API[JSON API / yyjson]
+    Handler --> Static[Static / embed]
+    Handler --> API[JSON / yyjson]
     Handler --> SSE[SSE Stream]
     Handler --> WS[WebSocket]
-
-    subgraph io_uring Event Loop
-        Accept
-        TLS
-        H1
-        H2
-        QUIC
-        H3
-    end
 ```
 
 ## Key Features
@@ -76,6 +80,39 @@ graph TB
 - **Security** — CSP, HSTS, X-Frame-Options, SameSite cookies, RBAC bitmask
 - **Single binary** — embed SPA + assets in executable via `#embed` or packed FS
 
+## Production Features
+
+Sprint 12 hardening features for production readiness:
+
+- **Linked timeouts** — header read, body read, and keepalive timeouts via io_uring `LINK_TIMEOUT`; no timer threads, no signal hacks
+- **Request limits** — max header size (431 Request Header Fields Too Large), max body size (413 Content Too Large), configurable per-route
+- **Signal-driven shutdown** — `SIGTERM` triggers graceful drain (stop accepting, finish in-flight, close), `SIGQUIT` triggers immediate shutdown, both via `signalfd` integrated into the io_uring event loop
+- **Structured logging** — `io_log` with severity levels (DEBUG/INFO/WARN/ERROR), custom sink callbacks, default stderr output
+- **Request ID** — auto-generated 128-bit hex `X-Request-Id` header, propagated through middleware chain and available in logging context
+- **PROXY protocol** — v1 (text) and v2 (binary + TLV extensions), explicit listener mode only, trusted source IP allowlist
+
+<details>
+<summary>Connection State Machine</summary>
+
+```mermaid
+stateDiagram-v2
+    [*] --> ACCEPTING
+    ACCEPTING --> PROXY_HEADER : proxy_protocol=true
+    ACCEPTING --> TLS_HANDSHAKE : TLS enabled
+    ACCEPTING --> HTTP_ACTIVE : plain TCP
+    PROXY_HEADER --> TLS_HANDSHAKE : header parsed + TLS
+    PROXY_HEADER --> HTTP_ACTIVE : header parsed
+    TLS_HANDSHAKE --> HTTP_ACTIVE : handshake done
+    HTTP_ACTIVE --> DRAINING : SIGTERM
+    DRAINING --> CLOSING : drain timeout
+    CLOSING --> [*] : fd closed
+    PROXY_HEADER --> CLOSING : malformed / timeout
+    TLS_HANDSHAKE --> CLOSING : handshake failure
+    HTTP_ACTIVE --> CLOSING : error / SIGQUIT / timeout
+```
+
+</details>
+
 ## Protocol Stack
 
 | Layer | Library | License | LOC |
@@ -90,37 +127,47 @@ graph TB
 | Async I/O | [liburing](https://github.com/axboe/liburing) | MIT/LGPL | ~3K |
 | JSON | [yyjson](https://github.com/ibireme/yyjson) | MIT | ~8K |
 
+## RFC Compliance
+
+| RFC | Title | Status |
+|-----|-------|--------|
+| 9110 | HTTP Semantics | Partial |
+| 9112 | HTTP/1.1 | Implemented |
+| 9113 | HTTP/2 | Implemented |
+| 9114 | HTTP/3 | Implemented |
+| 9000 | QUIC Transport | Implemented |
+| 8446 | TLS 1.3 | Implemented |
+| 6455 | WebSocket | Implemented |
+
 ## Documentation
 
 | # | Document | Description |
 |---|----------|-------------|
 | 01 | [Architecture](docs/en/01-architecture.md) | Core design, event loop, module decomposition |
 | 02 | [Comparison](docs/en/02-comparison.md) | Feature matrix vs Mongoose, H2O, libmicrohttpd, etc. |
+| 03 | [Production Hardening](docs/en/03-production-hardening.md) | Timeouts, limits, signals, logging, request ID, PROXY |
 
 ## Example
 
 ```c
-#include <iohttp/server.h>
+#include "core/io_server.h"
+#include "core/io_ctx.h"
 
-static int hello_handler(io_request_t *req, io_response_t *resp, void *ctx)
+static int hello(io_ctx_t *c, void *data)
 {
-    return io_respond_json(resp, 200, "{\"message\":\"hello\"}");
+    (void)data;
+    return io_ctx_json(c, 200, "{\"message\":\"hello\"}");
 }
 
 int main(void)
 {
-    io_server_config_t cfg = {
-        .listen_addr = "0.0.0.0",
-        .listen_port = 8080,
-        .tls_cert    = "/etc/certs/server.pem",
-        .tls_key     = "/etc/certs/server.key",
-        .queue_depth  = 256,
-    };
+    io_server_config_t cfg;
+    io_server_config_init(&cfg);
+    cfg.listen_port = 8080;
 
     io_server_t *srv = io_server_create(&cfg);
-    io_route_add(srv, IO_GET, "/api/hello", hello_handler, nullptr);
-    io_route_static(srv, "/admin", "./dist", IO_STATIC_SPA);
-    io_server_run(srv);  /* blocks on io_uring event loop */
+    io_server_set_on_request(srv, hello, nullptr);
+    io_server_run(srv);
     io_server_destroy(srv);
 }
 ```
