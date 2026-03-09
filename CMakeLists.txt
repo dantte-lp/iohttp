@@ -832,6 +832,19 @@ if(BUILD_TESTING AND TARGET unity)
     )
     add_test(NAME test_shutdown COMMAND test_shutdown)
 
+    add_executable(test_limits tests/integration/test_limits.c)
+    target_include_directories(test_limits PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_limits PRIVATE
+        unity io_server io_loop io_conn io_ctx
+        io_http1 io_request io_response
+        io_router io_radix io_middleware
+        io_route_group io_route_inspect io_route_meta
+    )
+    target_compile_options(test_limits PRIVATE
+        -Wno-missing-prototypes -Wno-missing-declarations
+    )
+    add_test(NAME test_limits COMMAND test_limits)
+
     add_executable(test_tls_pipeline tests/integration/test_tls_pipeline.c)
     target_include_directories(test_tls_pipeline PRIVATE
         ${CMAKE_SOURCE_DIR}/src ${WOLFSSL_INCLUDE_DIRS})

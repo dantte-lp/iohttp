@@ -298,6 +298,23 @@ static int arm_send(io_server_t *srv, io_conn_t *conn, const uint8_t *data, size
     return 0;
 }
 
+static void send_error_response(io_server_t *srv, io_conn_t *conn, uint16_t status,
+                                const char *msg)
+{
+    io_response_t resp;
+    (void)io_response_init(&resp);
+    resp.status = status;
+    (void)io_response_set_body(&resp, (const uint8_t *)msg, strlen(msg));
+
+    uint8_t resp_buf[512];
+    int resp_len = io_http1_serialize_response(&resp, resp_buf, sizeof(resp_buf));
+    if (resp_len > 0) {
+        (void)arm_send(srv, conn, resp_buf, (size_t)resp_len);
+    }
+    io_response_destroy(&resp);
+    conn->keep_alive = false;
+}
+
 static int arm_close(io_server_t *srv, io_conn_t *conn)
 {
     if (conn->tls_ctx != nullptr) {
@@ -617,6 +634,14 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                 }
             }
 
+            /* ---- Header size limit check ---- */
+            if (conn->recv_len > srv->config.max_header_size) {
+                send_error_response(srv, conn, 431,
+                                    "Request Header Fields Too Large");
+                processed++;
+                continue;
+            }
+
             /* ---- HTTP parsing (plaintext in recv_buf) ---- */
             io_request_t req;
             int consumed = io_http1_parse_request(conn->recv_buf, conn->recv_len, &req);
@@ -624,6 +649,13 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
             if (consumed > 0) {
                 size_t hdr_len = (size_t)consumed;
                 size_t body_avail = conn->recv_len - hdr_len;
+
+                /* ---- Content-Length limit check ---- */
+                if (req.content_length > srv->config.max_body_size) {
+                    send_error_response(srv, conn, 413, "Content Too Large");
+                    processed++;
+                    continue;
+                }
 
                 /* Wait for full body if Content-Length specified */
                 if (req.content_length > 0 && body_avail < req.content_length) {
@@ -650,17 +682,7 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
             } else if (consumed == -EAGAIN) {
                 (void)arm_recv(srv, conn);
             } else {
-                io_response_t bad_resp;
-                (void)io_response_init(&bad_resp);
-                bad_resp.status = 400;
-                (void)io_response_set_body(&bad_resp, (const uint8_t *)"Bad Request", 11);
-                uint8_t resp_buf[512];
-                int resp_len = io_http1_serialize_response(&bad_resp, resp_buf, sizeof(resp_buf));
-                if (resp_len > 0) {
-                    (void)arm_send(srv, conn, resp_buf, (size_t)resp_len);
-                }
-                io_response_destroy(&bad_resp);
-                conn->keep_alive = false;
+                send_error_response(srv, conn, 400, "Bad Request");
             }
         } else if (op == IO_OP_SEND) {
             uint32_t conn_id = (uint32_t)IO_DECODE_ID(ud);
