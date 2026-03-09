@@ -6,6 +6,7 @@
 #include "core/io_server.h"
 
 #include "core/io_ctx.h"
+#include "core/io_log.h"
 #include "http/io_http1.h"
 #include "http/io_request.h"
 #include "http/io_response.h"
@@ -36,7 +37,7 @@ struct io_server {
     io_server_on_request_fn on_request;
     void *on_request_data;
     int listen_fd;
-    int signal_fd;                      /**< signalfd for SIGTERM/SIGQUIT, -1 if not set up */
+    int signal_fd;                       /**< signalfd for SIGTERM/SIGQUIT, -1 if not set up */
     struct signalfd_siginfo siginfo_buf; /**< signal read buffer */
     bool listening;
     bool accepting; /* multishot accept armed */
@@ -307,8 +308,7 @@ static int arm_send(io_server_t *srv, io_conn_t *conn, const uint8_t *data, size
     return 0;
 }
 
-static void send_error_response(io_server_t *srv, io_conn_t *conn, uint16_t status,
-                                const char *msg)
+static void send_error_response(io_server_t *srv, io_conn_t *conn, uint16_t status, const char *msg)
 {
     io_response_t resp;
     (void)io_response_init(&resp);
@@ -474,6 +474,10 @@ int io_server_listen(io_server_t *srv)
     srv->listen_fd = fd;
     srv->listening = true;
 
+    IO_LOG_INFO("server", "listening on %s:%u (fd=%d)",
+                srv->config.listen_addr != nullptr ? srv->config.listen_addr : "0.0.0.0",
+                (unsigned)srv->config.listen_port, fd);
+
     /* Arm multishot accept */
     int ret = arm_multishot_accept(srv);
     if (ret < 0) {
@@ -556,6 +560,7 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                     }
                 } else {
                     /* Backpressure: pool full, close immediately */
+                    IO_LOG_WARN("server", "pool full, rejecting fd=%d", client_fd);
                     close(client_fd);
                 }
             }
@@ -645,8 +650,9 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
 
             /* ---- Header size limit check ---- */
             if (conn->recv_len > srv->config.max_header_size) {
-                send_error_response(srv, conn, 431,
-                                    "Request Header Fields Too Large");
+                IO_LOG_WARN("server", "conn %u: header too large (%zu > %u)", conn->id,
+                            conn->recv_len, srv->config.max_header_size);
+                send_error_response(srv, conn, 431, "Request Header Fields Too Large");
                 processed++;
                 continue;
             }
@@ -661,6 +667,8 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
 
                 /* ---- Content-Length limit check ---- */
                 if (req.content_length > srv->config.max_body_size) {
+                    IO_LOG_WARN("server", "conn %u: body too large (%zu > %u)", conn->id,
+                                req.content_length, srv->config.max_body_size);
                     send_error_response(srv, conn, 413, "Content Too Large");
                     processed++;
                     continue;
@@ -753,12 +761,14 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                 uint32_t conn_id = (uint32_t)IO_DECODE_ID(ud);
                 io_conn_t *conn = find_conn_by_id(srv, conn_id);
                 if (conn != nullptr) {
+                    IO_LOG_DEBUG("server", "conn %u: timeout, closing", conn->id);
                     (void)arm_close(srv, conn);
                 }
             }
         } else if (op == IO_OP_SIGNAL) {
             if (cqe->res > 0) {
                 uint32_t signo = srv->siginfo_buf.ssi_signo;
+                IO_LOG_INFO("server", "received signal %u, shutting down", signo);
                 if (signo == SIGQUIT) {
                     (void)io_server_shutdown(srv, IO_SHUTDOWN_IMMEDIATE);
                 } else if (signo == SIGTERM) {
@@ -772,8 +782,7 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                 if (sig_sqe != nullptr) {
                     io_uring_prep_read(sig_sqe, srv->signal_fd, &srv->siginfo_buf,
                                        sizeof(srv->siginfo_buf), 0);
-                    io_uring_sqe_set_data64(sig_sqe,
-                                            IO_ENCODE_USERDATA(0, IO_OP_SIGNAL));
+                    io_uring_sqe_set_data64(sig_sqe, IO_ENCODE_USERDATA(0, IO_OP_SIGNAL));
                 }
             }
         }
@@ -812,8 +821,7 @@ int io_server_run(io_server_t *srv)
         struct io_uring *ring = io_loop_ring(srv->loop);
         struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
         if (sqe != nullptr) {
-            io_uring_prep_read(sqe, srv->signal_fd, &srv->siginfo_buf,
-                               sizeof(srv->siginfo_buf), 0);
+            io_uring_prep_read(sqe, srv->signal_fd, &srv->siginfo_buf, sizeof(srv->siginfo_buf), 0);
             io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(0, IO_OP_SIGNAL));
         }
     }
@@ -857,6 +865,9 @@ int io_server_shutdown(io_server_t *srv, io_shutdown_mode_t mode)
     }
 
     srv->stopped = true;
+
+    IO_LOG_INFO("server", "shutdown mode=%s, active=%u",
+                mode == IO_SHUTDOWN_DRAIN ? "drain" : "immediate", io_conn_pool_active(srv->pool));
 
     /* Cancel multishot accept */
     if (srv->accepting) {

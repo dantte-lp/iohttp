@@ -57,13 +57,13 @@ typedef struct {
     size_t recv_len;      /**< bytes currently in buffer */
 
     /* ---- Send state ---- */
-    uint8_t *send_buf;  /**< pending send data */
-    size_t send_len;    /**< bytes remaining to send */
-    size_t send_offset; /**< bytes already sent */
-    bool send_active;   /**< true if IO_OP_SEND is in-flight */
-    bool keep_alive;    /**< HTTP/1.1 keep-alive (re-arm recv after send) */
-    bool tls_done;                    /**< TLS handshake completed */
-    io_timeout_phase_t timeout_phase; /**< current recv timeout phase */
+    uint8_t *send_buf;                   /**< pending send data */
+    size_t send_len;                     /**< bytes remaining to send */
+    size_t send_offset;                  /**< bytes already sent */
+    bool send_active;                    /**< true if IO_OP_SEND is in-flight */
+    bool keep_alive;                     /**< HTTP/1.1 keep-alive (re-arm recv after send) */
+    bool tls_done;                       /**< TLS handshake completed */
+    io_timeout_phase_t timeout_phase;    /**< current recv timeout phase */
     struct __kernel_timespec timeout_ts; /**< linked timeout spec (must outlive SQE) */
 } io_conn_t;
 

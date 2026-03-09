@@ -116,8 +116,7 @@ void test_oversized_header_returns_431(void)
     }
 
     /* Verify 431 status */
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "431"),
-                                 "Expected 431 in response");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "431"), "Expected 431 in response");
 
     close(client);
     io_server_destroy(srv);
@@ -170,8 +169,7 @@ void test_oversized_body_returns_413(void)
     }
 
     /* Verify 413 status */
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "413"),
-                                 "Expected 413 in response");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "413"), "Expected 413 in response");
 
     close(client);
     io_server_destroy(srv);
