@@ -1,0 +1,165 @@
+/**
+ * @file test_proxy_pipeline.c
+ * @brief Integration tests for PROXY protocol in the server pipeline.
+ */
+
+#include "core/io_ctx.h"
+#include "core/io_server.h"
+
+#include <arpa/inet.h>
+#include <errno.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <unity.h>
+
+void setUp(void) {}
+void tearDown(void) {}
+
+static io_server_config_t make_config(uint16_t port)
+{
+    io_server_config_t cfg;
+    io_server_config_init(&cfg);
+    cfg.listen_addr = "127.0.0.1";
+    cfg.listen_port = port;
+    cfg.max_connections = 16;
+    cfg.header_timeout_ms = 5000;
+    cfg.proxy_protocol = true;
+    return cfg;
+}
+
+static uint16_t get_bound_port(int listen_fd)
+{
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    getsockname(listen_fd, (struct sockaddr *)&addr, &len);
+    return ntohs(addr.sin_port);
+}
+
+static int connect_client(uint16_t port)
+{
+    int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(port),
+    };
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    return fd;
+}
+
+static int on_request_echo(io_ctx_t *c, void *user_data)
+{
+    (void)user_data;
+    return io_ctx_text(c, 200, "OK");
+}
+
+void test_proxy_v1_tcp4_pipeline(void)
+{
+    io_server_config_t cfg = make_config(19500);
+    io_server_t *srv = io_server_create(&cfg);
+    TEST_ASSERT_NOT_NULL(srv);
+    (void)io_server_set_on_request(srv, on_request_echo, nullptr);
+
+    int fd = io_server_listen(srv);
+    TEST_ASSERT_GREATER_THAN(0, fd);
+    uint16_t port = get_bound_port(fd);
+
+    int client_fd = connect_client(port);
+    TEST_ASSERT_TRUE(client_fd >= 0);
+
+    /* Send PROXY v1 header followed by HTTP request */
+    const char *proxy_header =
+        "PROXY TCP4 192.168.1.1 192.168.1.2 12345 80\r\n";
+    const char *http_req =
+        "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+
+    send(client_fd, proxy_header, strlen(proxy_header), 0);
+    send(client_fd, http_req, strlen(http_req), 0);
+
+    for (int i = 0; i < 15; i++) {
+        (void)io_server_run_once(srv, 200);
+    }
+
+    char resp[4096] = {0};
+    recv(client_fd, resp, sizeof(resp) - 1, 0);
+
+    /* Should get a 200 response */
+    TEST_ASSERT_NOT_NULL(strstr(resp, "200"));
+
+    close(client_fd);
+    io_server_destroy(srv);
+}
+
+void test_proxy_invalid_header_closes_connection(void)
+{
+    io_server_config_t cfg = make_config(19501);
+    io_server_t *srv = io_server_create(&cfg);
+    TEST_ASSERT_NOT_NULL(srv);
+    (void)io_server_set_on_request(srv, on_request_echo, nullptr);
+
+    int fd = io_server_listen(srv);
+    TEST_ASSERT_GREATER_THAN(0, fd);
+    uint16_t port = get_bound_port(fd);
+
+    int client_fd = connect_client(port);
+    TEST_ASSERT_TRUE(client_fd >= 0);
+
+    /* Send garbage instead of PROXY header */
+    const char *garbage = "NOT_A_PROXY_HEADER\r\n";
+    send(client_fd, garbage, strlen(garbage), 0);
+
+    for (int i = 0; i < 10; i++) {
+        (void)io_server_run_once(srv, 200);
+    }
+
+    /* Connection should be closed */
+    TEST_ASSERT_EQUAL_UINT32(
+        0, io_conn_pool_active(io_server_pool(srv)));
+
+    close(client_fd);
+    io_server_destroy(srv);
+}
+
+void test_non_proxy_listener_ignores_proxy_headers(void)
+{
+    io_server_config_t cfg = make_config(19502);
+    cfg.proxy_protocol = false; /* NOT a PROXY listener */
+    io_server_t *srv = io_server_create(&cfg);
+    TEST_ASSERT_NOT_NULL(srv);
+    (void)io_server_set_on_request(srv, on_request_echo, nullptr);
+
+    int fd = io_server_listen(srv);
+    TEST_ASSERT_GREATER_THAN(0, fd);
+    uint16_t port = get_bound_port(fd);
+
+    int client_fd = connect_client(port);
+    TEST_ASSERT_TRUE(client_fd >= 0);
+
+    /* Send normal HTTP request (no PROXY) */
+    const char *http_req =
+        "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    send(client_fd, http_req, strlen(http_req), 0);
+
+    for (int i = 0; i < 10; i++) {
+        (void)io_server_run_once(srv, 200);
+    }
+
+    char resp[4096] = {0};
+    recv(client_fd, resp, sizeof(resp) - 1, 0);
+    TEST_ASSERT_NOT_NULL(strstr(resp, "200"));
+
+    close(client_fd);
+    io_server_destroy(srv);
+}
+
+int main(void)
+{
+    UNITY_BEGIN();
+    RUN_TEST(test_proxy_v1_tcp4_pipeline);
+    RUN_TEST(test_proxy_invalid_header_closes_connection);
+    RUN_TEST(test_non_proxy_listener_ignores_proxy_headers);
+    return UNITY_END();
+}

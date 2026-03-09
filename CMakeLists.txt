@@ -292,7 +292,7 @@ io_add_test(test_io_log tests/unit/test_io_log.c io_log)
 
 add_library(io_server STATIC src/core/io_server.c)
 target_include_directories(io_server PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(io_server PUBLIC io_loop io_conn io_ctx io_http1 io_request io_response io_router io_middleware io_tls io_log)
+target_link_libraries(io_server PUBLIC io_loop io_conn io_ctx io_http1 io_request io_response io_router io_middleware io_tls io_log io_proxy_proto)
 
 io_add_test(test_io_server tests/unit/test_io_server.c io_server io_loop io_conn)
 
@@ -881,6 +881,20 @@ if(BUILD_TESTING AND TARGET unity)
         -Wno-missing-prototypes -Wno-missing-declarations
     )
     add_test(NAME test_request_id COMMAND test_request_id)
+
+    add_executable(test_proxy_pipeline tests/integration/test_proxy_pipeline.c)
+    target_include_directories(test_proxy_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_proxy_pipeline PRIVATE
+        unity io_server io_loop io_conn io_ctx
+        io_http1 io_request io_response
+        io_router io_radix io_middleware
+        io_route_group io_route_inspect io_route_meta
+        io_proxy_proto io_log
+    )
+    target_compile_options(test_proxy_pipeline PRIVATE
+        -Wno-missing-prototypes -Wno-missing-declarations
+    )
+    add_test(NAME test_proxy_pipeline COMMAND test_proxy_pipeline)
 
     add_executable(test_tls_pipeline tests/integration/test_tls_pipeline.c)
     target_include_directories(test_tls_pipeline PRIVATE

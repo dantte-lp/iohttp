@@ -8,6 +8,7 @@
 #include "core/io_ctx.h"
 #include "core/io_log.h"
 #include "http/io_http1.h"
+#include "http/io_proxy_proto.h"
 #include "http/io_request.h"
 #include "http/io_response.h"
 #include "middleware/io_middleware.h"
@@ -561,8 +562,11 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
 
                     conn->timeout_phase = IO_TIMEOUT_HEADER;
 
-                    if (srv->tls_ctx != nullptr) {
-                        conn->tls_ctx = io_tls_conn_create(srv->tls_ctx, client_fd);
+                    if (srv->config.proxy_protocol) {
+                        (void)io_conn_transition(conn, IO_CONN_PROXY_HEADER);
+                    } else if (srv->tls_ctx != nullptr) {
+                        conn->tls_ctx =
+                            io_tls_conn_create(srv->tls_ctx, client_fd);
                         conn->tls_done = false;
                         (void)io_conn_transition(conn, IO_CONN_TLS_HANDSHAKE);
                     } else {
@@ -606,6 +610,68 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
             }
 
             conn->recv_len += (size_t)cqe->res;
+
+            /* ---- PROXY protocol path ---- */
+            if (conn->state == IO_CONN_PROXY_HEADER) {
+                io_proxy_result_t proxy_result;
+                int proxy_ret = io_proxy_decode(
+                    conn->recv_buf, conn->recv_len, &proxy_result);
+
+                if (proxy_ret > 0) {
+                    /* PROXY header decoded — store addresses */
+                    conn->proxy_addr = proxy_result.src_addr;
+                    conn->proxy_used = true;
+
+                    /* Consume PROXY header bytes from buffer */
+                    size_t consumed = (size_t)proxy_ret;
+                    size_t remaining = conn->recv_len - consumed;
+                    if (remaining > 0) {
+                        memmove(conn->recv_buf,
+                                conn->recv_buf + consumed, remaining);
+                    }
+                    conn->recv_len = remaining;
+
+                    IO_LOG_DEBUG("server",
+                                 "conn %u: PROXY v%u from %s",
+                                 conn->id, proxy_result.version,
+                                 proxy_result.is_local ? "LOCAL"
+                                                       : "remote");
+
+                    /* Transition to next state */
+                    if (srv->tls_ctx != nullptr) {
+                        conn->tls_ctx = io_tls_conn_create(
+                            srv->tls_ctx, conn->fd);
+                        conn->tls_done = false;
+                        (void)io_conn_transition(
+                            conn, IO_CONN_TLS_HANDSHAKE);
+                    } else {
+                        (void)io_conn_transition(
+                            conn, IO_CONN_HTTP_ACTIVE);
+                    }
+
+                    /* If no remaining data, arm recv for more */
+                    if (conn->recv_len == 0) {
+                        (void)arm_recv(srv, conn);
+                        processed++;
+                        continue;
+                    }
+                    /* Fall through to TLS/HTTP parsing below */
+                } else if (proxy_ret == -EAGAIN) {
+                    /* Need more data */
+                    (void)arm_recv(srv, conn);
+                    processed++;
+                    continue;
+                } else {
+                    /* Malformed PROXY header — close */
+                    IO_LOG_WARN("server",
+                                "conn %u: malformed PROXY header,"
+                                " closing",
+                                conn->id);
+                    (void)arm_close(srv, conn);
+                    processed++;
+                    continue;
+                }
+            }
 
             /* ---- TLS path ---- */
             if (conn->tls_ctx != nullptr) {
