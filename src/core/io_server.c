@@ -179,6 +179,20 @@ static int arm_multishot_accept(io_server_t *srv)
     return 0;
 }
 
+static uint32_t timeout_ms_for_phase(const io_server_t *srv, io_timeout_phase_t phase)
+{
+    switch (phase) {
+    case IO_TIMEOUT_HEADER:
+        return srv->config.header_timeout_ms;
+    case IO_TIMEOUT_BODY:
+        return srv->config.body_timeout_ms;
+    case IO_TIMEOUT_KEEPALIVE:
+        return srv->config.keepalive_timeout_ms;
+    default:
+        return 0;
+    }
+}
+
 static int arm_recv(io_server_t *srv, io_conn_t *conn)
 {
     struct io_uring *ring = io_loop_ring(srv->loop);
@@ -190,6 +204,20 @@ static int arm_recv(io_server_t *srv, io_conn_t *conn)
     io_uring_prep_recv(sqe, conn->fd, conn->recv_buf + conn->recv_len,
                        conn->recv_buf_size - conn->recv_len, 0);
     io_uring_sqe_set_data64(sqe, IO_ENCODE_USERDATA(conn->id, IO_OP_RECV));
+
+    /* Link a timeout SQE if a timeout phase is set */
+    uint32_t tmo_ms = timeout_ms_for_phase(srv, conn->timeout_phase);
+    if (tmo_ms > 0) {
+        struct io_uring_sqe *tsqe = io_uring_get_sqe(ring);
+        if (tsqe != nullptr) {
+            sqe->flags |= IOSQE_IO_LINK;
+            conn->timeout_ts.tv_sec = (long long)(tmo_ms / 1000);
+            conn->timeout_ts.tv_nsec = (long long)(tmo_ms % 1000) * 1000000LL;
+            io_uring_prep_link_timeout(tsqe, &conn->timeout_ts, 0);
+            io_uring_sqe_set_data64(tsqe, IO_ENCODE_USERDATA(conn->id, IO_OP_TIMEOUT));
+        }
+        /* If tsqe unavailable, proceed without timeout (flag not set) */
+    }
 
     return 0;
 }
@@ -484,6 +512,8 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                 if (conn != nullptr) {
                     conn->fd = client_fd;
 
+                    conn->timeout_phase = IO_TIMEOUT_HEADER;
+
                     if (srv->tls_ctx != nullptr) {
                         conn->tls_ctx = io_tls_conn_create(srv->tls_ctx, client_fd);
                         conn->tls_done = false;
@@ -552,6 +582,7 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                     if (hs == 0) {
                         /* Handshake complete */
                         conn->tls_done = true;
+                        conn->timeout_phase = IO_TIMEOUT_HEADER;
                         (void)io_conn_transition(conn, IO_CONN_HTTP_ACTIVE);
                         if (!conn->send_active) {
                             (void)arm_recv(srv, conn);
@@ -596,6 +627,7 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
 
                 /* Wait for full body if Content-Length specified */
                 if (req.content_length > 0 && body_avail < req.content_length) {
+                    conn->timeout_phase = IO_TIMEOUT_BODY;
                     (void)arm_recv(srv, conn);
                     processed++;
                     continue;
@@ -667,6 +699,8 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                         /* TLS handshake send done — need more recv */
                         (void)arm_recv(srv, conn);
                     } else if (conn->keep_alive && conn->state == IO_CONN_HTTP_ACTIVE) {
+                        conn->timeout_phase = IO_TIMEOUT_KEEPALIVE;
+                        conn->recv_len = 0;
                         (void)arm_recv(srv, conn);
                     } else {
                         (void)arm_close(srv, conn);
@@ -679,6 +713,17 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
             if (conn != nullptr) {
                 conn->fd = -1;
                 io_conn_free(srv->pool, conn);
+            }
+        } else if (op == IO_OP_TIMEOUT) {
+            if (cqe->res == -ECANCELED) {
+                /* Recv completed before timeout — nothing to do */
+            } else {
+                /* Timeout fired — close the connection */
+                uint32_t conn_id = (uint32_t)IO_DECODE_ID(ud);
+                io_conn_t *conn = find_conn_by_id(srv, conn_id);
+                if (conn != nullptr) {
+                    (void)arm_close(srv, conn);
+                }
             }
         }
 

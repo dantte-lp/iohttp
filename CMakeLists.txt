@@ -806,6 +806,19 @@ if(BUILD_TESTING AND TARGET unity)
     )
     add_test(NAME test_keepalive COMMAND test_keepalive)
 
+    add_executable(test_timeout tests/integration/test_timeout.c)
+    target_include_directories(test_timeout PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_timeout PRIVATE
+        unity io_server io_loop io_conn io_ctx
+        io_http1 io_request io_response
+        io_router io_radix io_middleware
+        io_route_group io_route_inspect io_route_meta
+    )
+    target_compile_options(test_timeout PRIVATE
+        -Wno-missing-prototypes -Wno-missing-declarations
+    )
+    add_test(NAME test_timeout COMMAND test_timeout)
+
     add_executable(test_shutdown tests/integration/test_shutdown.c)
     target_include_directories(test_shutdown PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(test_shutdown PRIVATE

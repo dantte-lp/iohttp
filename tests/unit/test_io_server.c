@@ -354,6 +354,35 @@ void test_server_run_stop(void)
     io_server_destroy(srv);
 }
 
+/* ---- Timeout phase test ---- */
+
+void test_server_conn_timeout_phase_default(void)
+{
+    io_server_config_t cfg = make_config(19030, 16);
+    io_server_t *srv = io_server_create(&cfg);
+    TEST_ASSERT_NOT_NULL(srv);
+
+    int fd = io_server_listen(srv);
+    TEST_ASSERT_GREATER_THAN(0, fd);
+    uint16_t port = get_bound_port(fd);
+
+    int client_fd = connect_client(port);
+    TEST_ASSERT_TRUE(client_fd >= 0);
+
+    /* Process accept — connection should get IO_TIMEOUT_HEADER */
+    int ret = io_server_run_once(srv, 1000);
+    TEST_ASSERT_GREATER_THAN(0, ret);
+    TEST_ASSERT_EQUAL_UINT32(1, io_conn_pool_active(io_server_pool(srv)));
+
+    /* Verify the connection has HEADER timeout phase */
+    io_conn_t *conn = io_conn_pool_get(io_server_pool(srv), 0);
+    TEST_ASSERT_NOT_NULL(conn);
+    TEST_ASSERT_EQUAL_UINT8(IO_TIMEOUT_HEADER, conn->timeout_phase);
+
+    close(client_fd);
+    io_server_destroy(srv);
+}
+
 /* ---- Test runner ---- */
 
 int main(void)
@@ -376,6 +405,7 @@ int main(void)
     RUN_TEST(test_server_accept_arms_recv);
     RUN_TEST(test_server_run_null);
     RUN_TEST(test_server_run_stop);
+    RUN_TEST(test_server_conn_timeout_phase_default);
 
     return UNITY_END();
 }

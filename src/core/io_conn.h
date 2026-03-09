@@ -6,6 +6,7 @@
 #ifndef IOHTTP_CORE_CONN_H
 #define IOHTTP_CORE_CONN_H
 
+#include <linux/time_types.h>
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -26,6 +27,15 @@ typedef enum : uint8_t {
     IO_CONN_DRAINING,
     IO_CONN_CLOSING,
 } io_conn_state_t;
+
+/* ---- Timeout phases for linked recv timeouts ---- */
+
+typedef enum : uint8_t {
+    IO_TIMEOUT_NONE = 0,
+    IO_TIMEOUT_HEADER,
+    IO_TIMEOUT_BODY,
+    IO_TIMEOUT_KEEPALIVE,
+} io_timeout_phase_t;
 
 /* ---- Connection ---- */
 
@@ -52,7 +62,9 @@ typedef struct {
     size_t send_offset; /**< bytes already sent */
     bool send_active;   /**< true if IO_OP_SEND is in-flight */
     bool keep_alive;    /**< HTTP/1.1 keep-alive (re-arm recv after send) */
-    bool tls_done;      /**< TLS handshake completed */
+    bool tls_done;                    /**< TLS handshake completed */
+    io_timeout_phase_t timeout_phase; /**< current recv timeout phase */
+    struct __kernel_timespec timeout_ts; /**< linked timeout spec (must outlive SQE) */
 } io_conn_t;
 
 /* ---- Opaque pool type ---- */
