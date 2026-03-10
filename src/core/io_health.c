@@ -14,7 +14,7 @@
 #include <string.h>
 
 #ifdef IOHTTP_HAVE_YYJSON
-#include <yyjson.h>
+#    include <yyjson.h>
 #endif
 
 /* ---- JSON escape helper (for non-yyjson fallback) ---- */
@@ -96,8 +96,8 @@ void io_health_config_init(io_health_config_t *cfg)
     cfg->checker_count = 0;
 }
 
-int io_health_add_checker(io_health_config_t *cfg, const char *name,
-                          io_health_check_fn check, void *user_data)
+int io_health_add_checker(io_health_config_t *cfg, const char *name, io_health_check_fn check,
+                          void *user_data)
 {
     if (cfg == nullptr || name == nullptr || check == nullptr) {
         return -EINVAL;
@@ -209,13 +209,11 @@ static int live_handler(io_ctx_t *c)
         }
 
         json_escape(escaped, sizeof(escaped), chk->name);
-        off += snprintf(buf + off, sizeof(buf) - (size_t)off,
-                        "\"%s\":{\"status\":\"%s\"", escaped,
+        off += snprintf(buf + off, sizeof(buf) - (size_t)off, "\"%s\":{\"status\":\"%s\"", escaped,
                         results[i].rc == 0 ? "ok" : "fail");
         if (results[i].msg != nullptr) {
             json_escape(escaped, sizeof(escaped), results[i].msg);
-            off += snprintf(buf + off, sizeof(buf) - (size_t)off,
-                            ",\"message\":\"%s\"", escaped);
+            off += snprintf(buf + off, sizeof(buf) - (size_t)off, ",\"message\":\"%s\"", escaped);
         }
         off += snprintf(buf + off, sizeof(buf) - (size_t)off, "}");
     }

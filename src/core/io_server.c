@@ -202,12 +202,14 @@ static uint32_t timeout_ms_for_phase(const io_server_t *srv, const io_conn_t *co
     case IO_TIMEOUT_HEADER:
         return srv->config.header_timeout_ms;
     case IO_TIMEOUT_BODY:
-        if (conn != nullptr && conn->route_body_timeout_ms > 0)
+        if (conn != nullptr && conn->route_body_timeout_ms > 0) {
             return conn->route_body_timeout_ms;
+        }
         return srv->config.body_timeout_ms;
     case IO_TIMEOUT_KEEPALIVE:
-        if (conn != nullptr && conn->route_keepalive_timeout_ms > 0)
+        if (conn != nullptr && conn->route_keepalive_timeout_ms > 0) {
             return conn->route_keepalive_timeout_ms;
+        }
         return srv->config.keepalive_timeout_ms;
     default:
         return 0;
@@ -769,8 +771,8 @@ int io_server_run_once(io_server_t *srv, uint32_t timeout_ms)
                 if (req.content_length > 0 && body_avail < req.content_length) {
                     /* Apply per-route body timeout override */
                     if (srv->router != nullptr) {
-                        io_route_match_t m = io_router_dispatch(
-                            srv->router, req.method, req.path, req.path_len);
+                        io_route_match_t m =
+                            io_router_dispatch(srv->router, req.method, req.path, req.path_len);
                         if (m.status == IO_MATCH_FOUND && m.opts != nullptr) {
                             conn->route_body_timeout_ms = m.opts->body_timeout_ms;
                         }

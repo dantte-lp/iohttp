@@ -733,8 +733,8 @@ typedef struct {
 } client_resp_t;
 
 static int on_client_header_cb(nghttp2_session *session, const nghttp2_frame *frame,
-                                const uint8_t *name, size_t namelen, const uint8_t *value,
-                                size_t valuelen, uint8_t flags, void *user_data)
+                               const uint8_t *name, size_t namelen, const uint8_t *value,
+                               size_t valuelen, uint8_t flags, void *user_data)
 {
     (void)session;
     (void)flags;
@@ -749,7 +749,7 @@ static int on_client_header_cb(nghttp2_session *session, const nghttp2_frame *fr
 }
 
 static int on_client_data_chunk_cb(nghttp2_session *session, uint8_t flags, int32_t stream_id,
-                                    const uint8_t *data, size_t len, void *user_data)
+                                   const uint8_t *data, size_t len, void *user_data)
 {
     (void)session;
     (void)flags;
@@ -763,7 +763,7 @@ static int on_client_data_chunk_cb(nghttp2_session *session, uint8_t flags, int3
 }
 
 static int on_client_frame_recv_cb(nghttp2_session *session, const nghttp2_frame *frame,
-                                    void *user_data)
+                                   void *user_data)
 {
     (void)session;
     client_resp_t *cr = user_data;

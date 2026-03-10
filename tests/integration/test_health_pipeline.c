@@ -134,15 +134,12 @@ void test_health_endpoint_returns_ok(void)
     char resp[4096];
     ssize_t resp_len = recv_response(client, resp, sizeof(resp));
     TEST_ASSERT_GREATER_THAN(0, resp_len);
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "200", 3),
-        "Expected HTTP 200 status from /health");
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "application/json", 16),
-        "Expected application/json content type");
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "{\"status\":\"ok\"}", 15),
-        "Expected {\"status\":\"ok\"} body from /health");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "200", 3),
+                                 "Expected HTTP 200 status from /health");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "application/json", 16),
+                                 "Expected application/json content type");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "{\"status\":\"ok\"}", 15),
+                                 "Expected {\"status\":\"ok\"} body from /health");
 
     close(client);
     io_server_destroy(srv);
@@ -184,15 +181,12 @@ void test_ready_endpoint_returns_ready(void)
     char resp[4096];
     ssize_t resp_len = recv_response(client, resp, sizeof(resp));
     TEST_ASSERT_GREATER_THAN(0, resp_len);
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "200", 3),
-        "Expected HTTP 200 status from /ready");
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "application/json", 16),
-        "Expected application/json content type");
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "{\"status\":\"ready\"}", 18),
-        "Expected {\"status\":\"ready\"} body from /ready");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "200", 3),
+                                 "Expected HTTP 200 status from /ready");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "application/json", 16),
+                                 "Expected application/json content type");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "{\"status\":\"ready\"}", 18),
+                                 "Expected {\"status\":\"ready\"} body from /ready");
 
     close(client);
     io_server_destroy(srv);
@@ -234,12 +228,10 @@ void test_live_endpoint_returns_ok(void)
     char resp[4096];
     ssize_t resp_len = recv_response(client, resp, sizeof(resp));
     TEST_ASSERT_GREATER_THAN(0, resp_len);
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "200", 3),
-        "Expected HTTP 200 status from /live");
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "{\"status\":\"ok\"}", 15),
-        "Expected {\"status\":\"ok\"} body from /live");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "200", 3),
+                                 "Expected HTTP 200 status from /live");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "{\"status\":\"ok\"}", 15),
+                                 "Expected {\"status\":\"ok\"} body from /live");
 
     close(client);
     io_server_destroy(srv);
@@ -281,9 +273,8 @@ void test_health_nonexistent_returns_404(void)
     char resp[4096];
     ssize_t resp_len = recv_response(client, resp, sizeof(resp));
     TEST_ASSERT_GREATER_THAN(0, resp_len);
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        memmem(resp, (size_t)resp_len, "404", 3),
-        "Expected HTTP 404 for non-health route");
+    TEST_ASSERT_NOT_NULL_MESSAGE(memmem(resp, (size_t)resp_len, "404", 3),
+                                 "Expected HTTP 404 for non-health route");
 
     close(client);
     io_server_destroy(srv);

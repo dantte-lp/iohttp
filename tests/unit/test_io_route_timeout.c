@@ -11,8 +11,12 @@
 #include <string.h>
 #include <unity.h>
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void)
+{
+}
+void tearDown(void)
+{
+}
 
 static int upload_handler(io_ctx_t *c)
 {
