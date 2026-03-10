@@ -150,7 +150,7 @@ void test_log_null_inputs(void)
     TEST_ASSERT_EQUAL_STRING("msg with null module", g_state.last_message);
 
     /* nullptr fmt should not crash */
-    io_log(IO_LOG_WARN, "test", nullptr);
+    io_log(IO_LOG_WARN, "test", nullptr); // -V618
     TEST_ASSERT_EQUAL_INT(2, g_state.call_count);
     TEST_ASSERT_EQUAL_STRING("", g_state.last_message);
 }
