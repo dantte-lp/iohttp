@@ -416,13 +416,16 @@ io_handler_fn io_router_method_not_allowed_handler(const io_router_t *r)
  * Copy param values from transient buffer into match-owned param_storage.
  * Prevents dangling pointers when the source buffer (e.g. normalized[]) goes
  * out of scope. Returns 0 on success, -ENOMEM if storage is exhausted.
+ *
+ * Only values are copied — param names point into the radix trie's heap-allocated
+ * param_name strings which remain stable for the lifetime of the router.
  */
 static int stabilize_param_values(io_route_match_t *m)
 {
     size_t offset = 0;
     for (uint32_t i = 0; i < m->param_count; i++) {
         size_t vlen = m->params[i].value_len;
-        if (offset + vlen >= IO_MAX_PARAM_STORAGE) {
+        if (offset + vlen + 1 > IO_MAX_PARAM_STORAGE) {
             return -ENOMEM;
         }
         memcpy(m->param_storage + offset, m->params[i].value, vlen);
@@ -502,7 +505,10 @@ io_route_match_t io_router_dispatch(const io_router_t *r, io_method_t method, co
             result.meta = rmatch.meta;
             result.param_count = rmatch.param_count;
             memcpy(result.params, rmatch.params, rmatch.param_count * sizeof(io_param_t));
-            (void)stabilize_param_values(&result);
+            if (stabilize_param_values(&result) < 0) {
+                result.status = IO_MATCH_NOT_FOUND;
+                result.param_count = 0;
+            }
             return result;
         }
     }
@@ -518,7 +524,10 @@ io_route_match_t io_router_dispatch(const io_router_t *r, io_method_t method, co
             result.meta = rmatch.meta;
             result.param_count = rmatch.param_count;
             memcpy(result.params, rmatch.params, rmatch.param_count * sizeof(io_param_t));
-            (void)stabilize_param_values(&result);
+            if (stabilize_param_values(&result) < 0) {
+                result.status = IO_MATCH_NOT_FOUND;
+                result.param_count = 0;
+            }
             return result;
         }
     }
