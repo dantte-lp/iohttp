@@ -92,7 +92,7 @@ void test_oversized_header_returns_431(void)
                        "GET / HTTP/1.1\r\nHost: localhost\r\n"
                        "X-Padding: ");
     /* Fill until we exceed 256 bytes total */
-    while (off < 300 && off < (int)sizeof(big_request) - 10) {
+    while (off < 300) {
         big_request[off++] = 'A';
     }
     big_request[off++] = '\r';

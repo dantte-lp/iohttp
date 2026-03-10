@@ -110,7 +110,8 @@ static void test_on_msg(uint8_t opcode, const uint8_t *msg, size_t len, void *ct
     test_io_t *io = ctx;
     io->last_opcode = opcode;
     size_t copy = (len < sizeof(io->last_msg)) ? len : sizeof(io->last_msg);
-    memcpy(io->last_msg, msg, copy);
+    if (copy > 0)
+        memcpy(io->last_msg, msg, copy);
     io->last_msg_len = len;
 }
 
