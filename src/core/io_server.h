@@ -113,6 +113,11 @@ void io_server_stop(io_server_t *srv);
  */
 [[nodiscard]] int io_server_shutdown(io_server_t *srv, io_shutdown_mode_t mode);
 
+/**
+ * @brief Check if server is in draining/shutdown state.
+ */
+bool io_server_is_draining(const io_server_t *srv);
+
 /* ---- Forward declarations ---- */
 
 typedef struct io_router io_router_t;

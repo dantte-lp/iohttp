@@ -45,6 +45,11 @@ struct io_server {
     bool stopped;
 };
 
+bool io_server_is_draining(const io_server_t *srv)
+{
+    return srv != nullptr && srv->stopped;
+}
+
 /* ---- Lifecycle ---- */
 
 void io_server_config_init(io_server_config_t *cfg)

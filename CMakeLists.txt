@@ -287,6 +287,27 @@ target_include_directories(io_log PUBLIC ${CMAKE_SOURCE_DIR}/src)
 io_add_test(test_io_log tests/unit/test_io_log.c io_log)
 
 # ============================================================================
+# Sprint 15: Health check endpoint framework
+# ============================================================================
+
+add_library(io_health STATIC src/core/io_health.c)
+target_include_directories(io_health PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(io_health PUBLIC io_router io_ctx io_request io_response)
+if(YYJSON_INCLUDE_DIR AND YYJSON_LIBRARY)
+    target_include_directories(io_health PRIVATE ${YYJSON_INCLUDE_DIR})
+    target_link_libraries(io_health PRIVATE ${YYJSON_LIBRARY})
+    target_compile_definitions(io_health PRIVATE IOHTTP_HAVE_YYJSON)
+endif()
+
+# Test uses a separate object without yyjson to avoid PIC issues with static yyjson
+if(BUILD_TESTING AND TARGET unity)
+    add_library(io_health_test STATIC src/core/io_health.c)
+    target_include_directories(io_health_test PUBLIC ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(io_health_test PUBLIC io_router io_ctx io_request io_response)
+    io_add_test(test_io_health tests/unit/test_io_health.c io_health_test io_server io_router io_radix io_ctx io_request io_response)
+endif()
+
+# ============================================================================
 # Sprint 1: Server lifecycle management
 # ============================================================================
 
