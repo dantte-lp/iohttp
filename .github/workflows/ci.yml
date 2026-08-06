@@ -28,4 +28,4 @@ jobs:
             -v "$PWD:/workspace" \
             -w /workspace \
             iohttp-dev:ci \
-            bash scripts/quality.sh
+            python scripts/quality.py
